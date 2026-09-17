@@ -229,10 +229,28 @@ def _warn_if_no_daemon(root: Path | None) -> None:
 # --- the surface -----------------------------------------------------------
 
 
+#: Shown at the foot of `alarm --help`. The daemon requirement is the one thing
+#: a new user has to know and cannot guess (DR-2).
+EPILOG = """\
+Alarms ring only while the daemon is running, and it is never started for you:
+
+  alarm daemon start            once per login session
+  alarm add 07:00 -m standup    the next 07:00 — today if it is still ahead
+  alarm list                    what is armed, soonest first
+  alarm cancel 1                by the id `list` shows
+
+State lives in ~/.alarm-cli/ (set ALARM_CLI_HOME to keep it elsewhere):
+alarms.json is the alarms, daemon.log is what the daemon did, and alarm.wav is
+the tone — replace it with any WAV you prefer.
+"""
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="alarm",
         description="Set a one-off alarm for a clock time and get interrupted when it fires.",
+        epilog=EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--version",
@@ -244,10 +262,15 @@ def build_parser() -> argparse.ArgumentParser:
     add = commands.add_parser(
         "add",
         help="set an alarm for the next occurrence of a clock time",
+        # Hard-wrapped, because the raw formatter the epilog needs also turns
+        # off wrapping for the description.
         description=(
-            "Set an alarm for the next occurrence of HH:MM: today if that time is "
-            "still ahead, tomorrow otherwise."
+            "Set an alarm for the next occurrence of HH:MM: today if that time\n"
+            "is still ahead, tomorrow otherwise. The resolved date is printed,\n"
+            "so you can see which day it landed on."
         ),
+        epilog="Examples:\n  alarm add 07:00 -m standup\n  alarm add 14:30\n",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     add.add_argument("time", metavar="HH:MM", help=f"when to ring — {ACCEPTED_FORMAT}")
     add.add_argument("-m", "--message", help="what to show in the notification")
@@ -256,7 +279,11 @@ def build_parser() -> argparse.ArgumentParser:
     listing = commands.add_parser(
         "list",
         help="list armed alarms",
-        description="List armed alarms, soonest first.",
+        description=(
+            "List armed alarms, soonest first. With --all, every alarm this store "
+            "has ever held: fired, missed (came due with no daemon running) and "
+            "cancelled, each with the time it reached that state."
+        ),
     )
     listing.add_argument(
         "--all",
@@ -268,7 +295,10 @@ def build_parser() -> argparse.ArgumentParser:
     cancel = commands.add_parser(
         "cancel",
         help="cancel an armed alarm by id",
-        description="Cancel an armed alarm. Its id is never reused.",
+        description=(
+            "Cancel an armed alarm. Ids are never reused, so a cancelled id in your "
+            "shell history can never later hit a different alarm."
+        ),
     )
     cancel.add_argument("id", metavar="ID", type=int, help="the id shown by `alarm list`")
     cancel.set_defaults(handler=cmd_cancel)
@@ -278,7 +308,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="start, stop or query the background process that rings alarms",
         description=(
             "Manage the daemon. Alarms only ring while it is running; it is never "
-            "started implicitly."
+            "started implicitly. It survives the terminal that started it, but not "
+            "a reboot — start it again after one."
         ),
     )
     daemon_commands = daemon_parser.add_subparsers(dest="daemon_command", metavar="COMMAND")

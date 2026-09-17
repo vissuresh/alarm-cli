@@ -6,8 +6,8 @@ Set an alarm for a clock time, get on with your work, and be interrupted by a
 sound and a desktop notification when the time comes. No database, no GUI, no
 third-party packages.
 
-> **Status: in progress.** Everything described below works. What is left is
-> release polish — see [docs/project_status.md](docs/project_status.md). See
+> **Status: 0.1.0.** Everything described below works. What it deliberately
+> does not do is listed at the end. See
 > [docs/project_status.md](docs/project_status.md) for what exists today and
 > [PLAN.md](PLAN.md) for the build order.
 
@@ -37,11 +37,15 @@ lost if the daemon is down, but they will not ring late either — see
 
 ## Install
 
-_Not yet packaged._ Once the scaffolding lands, installation will be:
-
 ```sh
-uv tool install .      # or: pip install --user .
+git clone https://github.com/vissuresh/alarm-cli && cd alarm-cli
+uv tool install .              # or: pip install --user .
 ```
+
+That puts `alarm` on your PATH. There is nothing else to install: no service to
+register, no dependencies to resolve.
+
+To work on it instead of installing it, `uv sync` and then `uv run alarm ...`.
 
 ## Usage
 

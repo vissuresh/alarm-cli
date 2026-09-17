@@ -8,6 +8,11 @@ Each milestone is one branch, one PR, one merge to `master`. Milestones are
 ordered so that every one leaves the repo in a working, testable state, and so
 that the riskiest unknown (detaching a daemon) is not the last thing attempted.
 
+> **All milestones are complete as of 0.1.0 (2026-09-17).** This file is kept as
+> the record of the order things were built in and, below, of what was
+> deliberately left out. Current state lives in
+> [docs/project_status.md](docs/project_status.md).
+
 ## M0 — Scaffolding
 
 **Branch:** `feature/scaffolding`

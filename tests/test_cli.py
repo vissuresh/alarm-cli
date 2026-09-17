@@ -470,3 +470,31 @@ def test_list_does_not_warn(run, capsys):
     # FR-11 is about commands that *modify* alarms; `list` changes nothing.
     run("list")
     assert capsys.readouterr().err == ""
+
+
+# --- the help, which is the only documentation a user is guaranteed to read --
+
+
+def test_the_top_level_help_says_alarms_need_a_daemon(run, capsys):
+    # DR-2: nothing starts the daemon for you, and a user who does not learn
+    # that from --help learns it from an alarm that never rang.
+    with pytest.raises(SystemExit) as exc:
+        run("--help")
+    assert exc.value.code == 0
+
+    out = capsys.readouterr().out
+    assert "alarm daemon start" in out
+    assert "~/.alarm-cli/" in out
+    assert paths.ROOT_ENV_VAR in out
+
+
+@pytest.mark.parametrize("command", ["add", "list", "cancel", "daemon"])
+def test_every_command_has_help_of_its_own(run, capsys, command):
+    with pytest.raises(SystemExit) as exc:
+        run(command, "--help")
+    assert exc.value.code == 0
+
+    out = capsys.readouterr().out
+    assert f"usage: alarm {command}" in out
+    # A description, not just a usage line and a list of flags.
+    assert len(out.splitlines()) > 5

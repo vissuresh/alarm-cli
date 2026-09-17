@@ -5,8 +5,8 @@ System design and diagrams live in [docs/architecture.md](docs/architecture.md);
 the decisions behind the design, with dates, live in
 [docs/changelog.md](docs/changelog.md).
 
-- **Version:** 0.1.0 (unreleased)
-- **Status:** in progress — M5 (daemon) complete; see [docs/project_status.md](docs/project_status.md)
+- **Version:** 0.1.0
+- **Status:** shipped — every requirement below is implemented and tested; see [docs/project_status.md](docs/project_status.md)
 
 ---
 
@@ -104,7 +104,7 @@ networked operation. Each is a deliberate cut, recorded with its reasoning in
 Python 3.12+, standard library only: `argparse`, `json`, `datetime`, `pathlib`,
 `subprocess`, `signal`, `fcntl`, `os`, `wave`, `logging`. Tests use `pytest`.
 
-Package layout (every module below `cli` is a stub until its milestone):
+Package layout:
 
 ```
 src/alarm_cli/

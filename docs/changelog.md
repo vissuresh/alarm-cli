@@ -13,7 +13,11 @@ Two kinds of entry live here:
 
 ---
 
-## [Unreleased]
+## [0.1.0] — 2026-09-17
+
+First release. A one-off alarm clock for the terminal: set an alarm for a clock
+time, close the terminal, get interrupted by a sound and a desktop notification
+when it fires.
 
 ### Added
 - Full documentation set: `README.md`, `project_spec.md`, `PLAN.md`,
@@ -45,9 +49,14 @@ Two kinds of entry live here:
   cleanup. The FR-11 no-daemon warning is now wired into `add` and `cancel`.
 - The daemon survives a store broken by hand, and reports a wedged daemon rather
   than escalating (DR-16).
+- M6 release polish: `alarm --help` carries a quickstart and says where state
+  lives, and the README install path is verified against a clean
+  `uv tool install .`.
 
-`alarm --version` is still the only behaviour: the store is built but nothing
-above it is wired up yet. See [project_status.md](project_status.md).
+Zero runtime dependencies, 245 tests in under a second, and one JSON file you
+can read. Sixteen decision records below say why each part is the shape it is;
+what the tool deliberately does not do is in
+[project_spec.md](../project_spec.md#known-limitations).
 
 ---
 
