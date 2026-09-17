@@ -18,8 +18,9 @@ Three goals shape every decision here, in priority order:
    snooze and reboot persistence were each considered and cut. Re-adding one is a
    design decision needing a record, not a ticket.
 
-**Current state: documentation only.** No code exists yet, and the repository has
-no commits. Start from [PLAN.md](PLAN.md) — M0 is the scaffolding.
+**Current state: scaffolding only.** The package installs and `alarm --version`
+works; every module below `cli` is a stub. Start from [PLAN.md](PLAN.md) — M1 is
+the model and store.
 
 ## Architecture overview
 
@@ -87,8 +88,7 @@ if one is added, wire it into the pre-push commands below in the same change.
 
 ## Commands
 
-The package does not exist yet; these are the commands M0 must make true, and
-they are the ones to use from M1 onward.
+These work as of M0 (`tests/test_store.py` arrives with M1).
 
 ```sh
 uv sync                              # create the venv, install dev deps
@@ -102,7 +102,7 @@ uv run alarm --help                  # run the CLI from the working tree
 uv tool install .                    # install `alarm` on PATH
 ```
 
-Debugging a live daemon:
+Debugging a live daemon (from M5):
 
 ```sh
 uv run alarm daemon status

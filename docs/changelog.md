@@ -19,8 +19,12 @@ Two kinds of entry live here:
 - Full documentation set: `README.md`, `project_spec.md`, `PLAN.md`,
   `docs/architecture.md`, `docs/project_status.md`, `docs/TECH_DEBT.md`,
   `CLAUDE.md`.
+- M0 scaffolding: `pyproject.toml` with no runtime dependencies and the `alarm`
+  console script, the `src/alarm_cli/` package with one stub module per the
+  documented layout, and a `tests/` smoke test.
 
-Nothing is implemented yet. See [project_status.md](project_status.md).
+`alarm --version` is the only behaviour so far; every module below `cli` is a
+stub. See [project_status.md](project_status.md).
 
 ---
 
@@ -254,3 +258,33 @@ than for a fixed interval. `GRACE` becomes 120s — two wake periods.
 drops idle wakeups to zero, requires the client to signal the daemon when an
 alarm is added — the client→daemon communication DR-1 exists to avoid. It stays
 in TD-2, now with a much smaller prize.
+
+## DR-10 — `hatchling` as the build backend, version in `__init__.py` (2026-09-17)
+
+**Status:** accepted
+
+**Context.** M0 needed a build backend to make `alarm` a console script. The
+candidates were `setuptools`, `uv_build` and `hatchling`. None of them is a
+runtime dependency — DR-4 governs what the *installed* program imports, and a
+build backend is never imported by it — so the only question was which costs
+least to live with.
+
+| Option | Why not |
+| --- | --- |
+| `setuptools` | Works, but needs the most configuration for a `src/` layout and carries the largest surface of legacy behaviour. |
+| `uv_build` | Smallest and fastest, but ties building the package to one tool; anyone with plain `pip` should be able to install this. |
+| **`hatchling`** | Chosen. |
+
+**Decision.** Build with `hatchling`. The version lives in
+`src/alarm_cli/__init__.py` and `pyproject.toml` reads it via
+`[tool.hatch.version]`, so `alarm --version`, the installed distribution and the
+spec cannot disagree.
+
+**Consequences.**
+- `pyproject.toml` stays short: a package path, a script entry point, and no
+  build-time code.
+- Installing with `pip`, `uv` or anything else PEP 517-aware works identically.
+- Bumping a version means editing one line in one file.
+- The version string is duplicated in prose (`project_spec.md`,
+  `docs/project_status.md`); those are documentation and are updated by the
+  release milestone (M6), not by the build.
