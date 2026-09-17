@@ -6,7 +6,7 @@ the decisions behind the design, with dates, live in
 [docs/changelog.md](docs/changelog.md).
 
 - **Version:** 0.1.0 (unreleased)
-- **Status:** specified, not implemented
+- **Status:** in progress — M0 (scaffolding) complete; see [docs/project_status.md](docs/project_status.md)
 
 ---
 
@@ -104,7 +104,7 @@ networked operation. Each is a deliberate cut, recorded with its reasoning in
 Python 3.12+, standard library only: `argparse`, `json`, `datetime`, `pathlib`,
 `subprocess`, `signal`, `fcntl`, `os`, `wave`, `logging`. Tests use `pytest`.
 
-Planned package layout (not yet created):
+Package layout (every module below `cli` is a stub until its milestone):
 
 ```
 src/alarm_cli/
