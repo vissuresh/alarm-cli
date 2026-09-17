@@ -18,7 +18,8 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from alarm_cli import __version__, store
+from alarm_cli import __version__, daemon, store
+from alarm_cli.daemon import DaemonError
 from alarm_cli.model import Alarm, AlarmState
 from alarm_cli.store import StoreError
 from alarm_cli.timeparse import ACCEPTED_FORMAT, TimeFormatError, next_occurrence
@@ -92,6 +93,33 @@ def cmd_cancel(args: argparse.Namespace, now: datetime, root: Path | None) -> in
 
     print(f"alarm {alarm.id} cancelled")
     _warn_if_no_daemon(root)
+    return 0
+
+
+def cmd_daemon_start(args: argparse.Namespace, now: datetime, root: Path | None) -> int:
+    """FR-6: exactly one detached daemon, or a refusal naming the live one."""
+    pid = daemon.start(root)
+    print(f"daemon started (pid {pid})")
+    return 0
+
+
+def cmd_daemon_stop(args: argparse.Namespace, now: datetime, root: Path | None) -> int:
+    """FR-7: signal the daemon, wait for it to go, clear the PID file."""
+    pid = daemon.stop(root)
+    if pid is None:
+        return _fail("no daemon is running")
+    print(f"daemon stopped (pid {pid})")
+    return 0
+
+
+def cmd_daemon_status(args: argparse.Namespace, now: datetime, root: Path | None) -> int:
+    """FR-7: report, and clear a PID file that outlived its process.
+
+    Exit 0 either way — "not running" is a true answer to the question asked,
+    not a failure to answer it.
+    """
+    pid = daemon.status(root)
+    print(f"daemon is running (pid {pid})" if pid else "no daemon is running")
     return 0
 
 
@@ -185,12 +213,17 @@ def _fail(message: str) -> int:
 def _warn_if_no_daemon(root: Path | None) -> None:
     """FR-11: warn on stderr when nothing is running to ring what we just wrote.
 
-    A stub until M5: liveness means reading the PID file and testing it with
-    `os.kill(pid, 0)`, which is the daemon's business and does not exist yet.
-    Deliberately silent rather than guessing from the file's presence — a stale
-    PID file would make it lie in the reassuring direction.
+    A warning, never a failure: the alarm is stored either way, and the user
+    may well be about to start the daemon. `status` tests liveness rather than
+    trusting the PID file, so a stale file cannot make this lie in the
+    reassuring direction.
     """
-    return None
+    if daemon.status(root) is None:
+        print(
+            "alarm: warning: no daemon is running, so nothing will ring — "
+            "start one with `alarm daemon start`",
+            file=sys.stderr,
+        )
 
 
 # --- the surface -----------------------------------------------------------
@@ -240,6 +273,27 @@ def build_parser() -> argparse.ArgumentParser:
     cancel.add_argument("id", metavar="ID", type=int, help="the id shown by `alarm list`")
     cancel.set_defaults(handler=cmd_cancel)
 
+    daemon_parser = commands.add_parser(
+        "daemon",
+        help="start, stop or query the background process that rings alarms",
+        description=(
+            "Manage the daemon. Alarms only ring while it is running; it is never "
+            "started implicitly."
+        ),
+    )
+    daemon_commands = daemon_parser.add_subparsers(dest="daemon_command", metavar="COMMAND")
+    daemon_commands.add_parser(
+        "start", help="detach a daemon and leave it running"
+    ).set_defaults(handler=cmd_daemon_start)
+    daemon_commands.add_parser(
+        "stop", help="ask the running daemon to exit"
+    ).set_defaults(handler=cmd_daemon_stop)
+    daemon_commands.add_parser(
+        "status", help="say whether a daemon is running, and its pid"
+    ).set_defaults(handler=cmd_daemon_status)
+    # `alarm daemon` with no verb: say what the verbs are, like a bare `alarm`.
+    daemon_parser.set_defaults(usage_parser=daemon_parser)
+
     return parser
 
 
@@ -255,7 +309,7 @@ def main(
 
     if getattr(args, "handler", None) is None:
         # Invoked bare, the only useful thing to do is say what the commands are.
-        parser.print_help(sys.stderr)
+        getattr(args, "usage_parser", parser).print_help(sys.stderr)
         return 2
 
     # The clock is read exactly once per run, so every timestamp a single
@@ -264,7 +318,7 @@ def main(
 
     try:
         return args.handler(args, when, root)
-    except (TimeFormatError, StoreError) as exc:
+    except (TimeFormatError, StoreError, DaemonError) as exc:
         # Errors the user can fix: a message, exit 1, no traceback. Anything
         # else is a bug and keeps its traceback.
         return _fail(str(exc))

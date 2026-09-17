@@ -13,23 +13,6 @@ paying it off looks like.
 
 ## Open
 
-Nothing yet — no code has been written. The entries below are debt the design
-already commits to, recorded now so it is not discovered later as a surprise.
-
-### TD-1 — Daemon start/stop is thinly tested
-
-**Accepted because:** detachment (double fork, `setsid`, stdio redirection to
-`daemon.log`) cannot be tested without spawning a real process, and real
-processes in a test suite are slow and flaky.
-
-**Cost:** the one part of the system that fails hardest — the daemon not actually
-detaching, so alarms die with the terminal — has the least coverage. Everything
-else is unit-tested against a fixed `now`.
-
-**Paying it off:** one integration test that starts a real daemon with the
-notifier stubbed, confirms the PID file, confirms the process survives its
-parent's exit, sets a near-future alarm, and observes `fired`. Scheduled in M5.
-
 ### TD-2 — Waking every minute rather than at the next fire time
 
 **Accepted because:** a minute-aligned wake has one code path, is immediately
@@ -78,4 +61,22 @@ daemon start when no player or notifier is available on the machine.
 
 ## Paid off
 
-_(none yet)_
+### TD-1 — Daemon start/stop is thinly tested (paid off in M5, 2026-09-17)
+
+**Was:** detachment — double fork, `setsid`, stdio redirection to `daemon.log` —
+cannot be tested without spawning a real process, so the part of the system that
+fails hardest had the least coverage.
+
+**Paid by:** `test_a_real_daemon_detaches_rings_and_stops_promptly`. It starts a
+real daemon through the console script, confirms the PID file holds a live PID
+*after the starting command has exited* (so the daemon is not a child of the
+test), watches an already-due alarm reach `fired`, confirms the ring reached
+both stub binaries, and times `alarm daemon stop` to catch the PEP 475 trap —
+a `time.sleep()` loop would block until the next minute boundary. The stubs are
+symlinks to `echo` on an otherwise empty `PATH`, so nothing audible can happen
+even on a machine with a sound card.
+
+**What is still thin:** that the daemon ignores SIGHUP when its terminal closes
+is argued from `setsid` rather than asserted — testing it needs a pty and a
+shell, which is more machinery than the risk justifies. It remains the one
+place where reading the code is the evidence.

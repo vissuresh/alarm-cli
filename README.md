@@ -6,8 +6,8 @@ Set an alarm for a clock time, get on with your work, and be interrupted by a
 sound and a desktop notification when the time comes. No database, no GUI, no
 third-party packages.
 
-> **Status: in progress.** `add`, `list` and `cancel` work. The daemon does
-> not exist yet, so nothing rings — that is M4 and M5. See
+> **Status: in progress.** Everything described below works. What is left is
+> release polish — see [docs/project_status.md](docs/project_status.md). See
 > [docs/project_status.md](docs/project_status.md) for what exists today and
 > [PLAN.md](PLAN.md) for the build order.
 

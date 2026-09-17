@@ -162,6 +162,15 @@ alarm daemon stop   -> SIGTERM the pid, wait for exit, clean the pid file
 alarm daemon status -> report pid + liveness, clearing a stale pid file
 ```
 
+`start` returns only once the detached daemon has published a PID that is
+actually alive, so `alarm daemon start` exiting 0 means there is a daemon, not
+that one was attempted. Liveness is always `os.kill(pid, 0)` rather than the
+PID file's existence, because a PID file in `$HOME` outlives a reboot (DR-5).
+
+Inside the daemon, `logging` is pointed at stderr, which detachment has already
+pointed at `daemon.log`; every ring, miss, signal and traceback lands there with
+a timestamp (NFR-8).
+
 The double fork is what lets an alarm survive closing the terminal that set it:
 after `setsid` the daemon is in its own session with no controlling terminal, so
 the shell's SIGHUP on exit never reaches it.

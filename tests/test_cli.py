@@ -5,11 +5,12 @@ nothing here reads the clock or touches a real `~/.alarm-cli`.
 """
 
 import json
+import os
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from alarm_cli import paths, store
+from alarm_cli import daemon, paths, store
 from alarm_cli.cli import format_delta, main
 from alarm_cli.model import AlarmState
 
@@ -357,3 +358,115 @@ def test_commands_honour_the_environment_root(tmp_path, monkeypatch, capsys):
 )
 def test_format_delta(delta, expected):
     assert format_delta(delta) == expected
+
+
+# --- FR-6, FR-7: the daemon commands ---------------------------------------
+
+
+def test_daemon_status_reports_a_running_daemon(run, tmp_path, capsys):
+    paths.ensure_root(tmp_path)
+    paths.pid_file(tmp_path).write_text(f"{os.getpid()}\n", encoding="utf-8")
+
+    assert run("daemon", "status") == 0
+    assert capsys.readouterr().out == f"daemon is running (pid {os.getpid()})\n"
+
+
+def test_daemon_status_reports_nothing_running(run, capsys):
+    # Not running is a true answer, not a failure to answer: exit 0.
+    assert run("daemon", "status") == 0
+    assert capsys.readouterr().out == "no daemon is running\n"
+
+
+def test_daemon_status_clears_a_stale_pid_file(run, tmp_path, monkeypatch, capsys):
+    paths.ensure_root(tmp_path)
+    paths.pid_file(tmp_path).write_text("4321\n", encoding="utf-8")
+    monkeypatch.setattr(daemon, "is_alive", lambda pid: False)
+
+    assert run("daemon", "status") == 0
+    assert not paths.pid_file(tmp_path).exists()
+
+
+def test_daemon_start_prints_the_new_pid(run, monkeypatch, capsys):
+    monkeypatch.setattr(daemon, "start", lambda root: 4321)
+    assert run("daemon", "start") == 0
+    assert capsys.readouterr().out == "daemon started (pid 4321)\n"
+
+
+def test_daemon_start_refuses_a_second_daemon(run, tmp_path, monkeypatch, capsys):
+    paths.ensure_root(tmp_path)
+    paths.pid_file(tmp_path).write_text(f"{os.getpid()}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        daemon, "_detach", lambda root: pytest.fail("a second daemon was started")
+    )
+
+    assert run("daemon", "start") == 1
+    assert f"already running (pid {os.getpid()})" in capsys.readouterr().err
+
+
+def test_daemon_stop_reports_the_pid_it_stopped(run, monkeypatch, capsys):
+    monkeypatch.setattr(daemon, "stop", lambda root: 4321)
+    assert run("daemon", "stop") == 0
+    assert capsys.readouterr().out == "daemon stopped (pid 4321)\n"
+
+
+def test_daemon_stop_with_nothing_running_is_an_error(run, capsys):
+    assert run("daemon", "stop") == 1
+    assert capsys.readouterr().err == "alarm: no daemon is running\n"
+
+
+def test_a_daemon_that_will_not_stop_is_reported(run, monkeypatch, capsys):
+    def wedged(root):
+        raise daemon.DaemonError("daemon (pid 4321) did not stop within 10s")
+
+    monkeypatch.setattr(daemon, "stop", wedged)
+    assert run("daemon", "stop") == 1
+    assert "did not stop" in capsys.readouterr().err
+
+
+def test_bare_daemon_prints_its_own_help(run, capsys):
+    assert run("daemon") == 2
+    assert "usage: alarm daemon" in capsys.readouterr().err
+
+
+# --- FR-11: the no-daemon warning ------------------------------------------
+
+
+def test_add_warns_when_no_daemon_is_running(run, capsys):
+    assert run("add", "07:00") == 0  # a warning, never a failure
+    captured = capsys.readouterr()
+    assert "alarm 1 set" in captured.out
+    assert "no daemon is running" in captured.err
+    assert "alarm daemon start" in captured.err  # says what to do about it
+
+
+def test_cancel_warns_when_no_daemon_is_running(run, capsys):
+    run("add", "07:00")
+    capsys.readouterr()
+
+    assert run("cancel", "1") == 0
+    assert "no daemon is running" in capsys.readouterr().err
+
+
+def test_no_warning_when_a_daemon_is_running(run, tmp_path, capsys):
+    paths.ensure_root(tmp_path)
+    paths.pid_file(tmp_path).write_text(f"{os.getpid()}\n", encoding="utf-8")
+
+    assert run("add", "07:00") == 0
+    assert capsys.readouterr().err == ""
+
+
+def test_a_stale_pid_file_does_not_silence_the_warning(run, tmp_path, monkeypatch, capsys):
+    # A PID file in $HOME outlives a reboot; trusting it would make the
+    # warning lie in the reassuring direction.
+    paths.ensure_root(tmp_path)
+    paths.pid_file(tmp_path).write_text("4321\n", encoding="utf-8")
+    monkeypatch.setattr(daemon, "is_alive", lambda pid: False)
+
+    run("add", "07:00")
+    assert "no daemon is running" in capsys.readouterr().err
+
+
+def test_list_does_not_warn(run, capsys):
+    # FR-11 is about commands that *modify* alarms; `list` changes nothing.
+    run("list")
+    assert capsys.readouterr().err == ""

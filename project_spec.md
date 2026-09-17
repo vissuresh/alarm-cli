@@ -6,7 +6,7 @@ the decisions behind the design, with dates, live in
 [docs/changelog.md](docs/changelog.md).
 
 - **Version:** 0.1.0 (unreleased)
-- **Status:** in progress — M4 (notification) complete; see [docs/project_status.md](docs/project_status.md)
+- **Status:** in progress — M5 (daemon) complete; see [docs/project_status.md](docs/project_status.md)
 
 ---
 
@@ -201,8 +201,8 @@ write.
 | `alarm list [--all]` | store | — | Armed alarms sorted by `fire_at`; `--all` appends terminal-state alarms sorted by `resolved_at`, as a second table. |
 | `alarm cancel <id>` | store | store | `armed` → `cancelled`, stamp `resolved_at`. |
 | `alarm daemon start` | pid file | pid file, log | Refuse if a live daemon holds the PID file; otherwise detach and run the wake loop. |
-| `alarm daemon stop` | pid file | pid file | `SIGTERM` the daemon, wait for exit, remove the PID file. |
-| `alarm daemon status` | pid file | — | Print running + PID, or not running. Clears a stale PID file it finds. |
+| `alarm daemon stop` | pid file | pid file | `SIGTERM` the daemon, wait for exit, remove the PID file. Exit 1 if nothing is running, or if it has not gone within 10s. |
+| `alarm daemon status` | pid file | — | Print running + PID, or not running. Clears a stale PID file it finds. Exit 0 either way: "not running" is an answer, not a failure. |
 
 ### Output
 
@@ -306,7 +306,15 @@ to absorb one lost wake, small enough that a missed alarm is unambiguous.
 `ring()` is best-effort and never raises into the loop: play the sound, raise the
 notification, log the outcome of each. A failure in either is logged and the
 alarm still becomes `fired` — the alarm did happen, the machine just couldn't be
-loud about it.
+loud about it. The sweep commits the new state *before* ringing, so no lock is
+held across a subprocess and a ring that dies cannot leave the alarm armed to
+ring again on the next wake.
+
+A store the daemon cannot read is logged once per wake and the loop continues,
+so a file broken by hand does not also cost the user their daemon (DR-16). A
+bug — anything that is not a `StoreError` — is allowed to crash it: the
+traceback lands in `daemon.log`, the PID file is removed on the way out, and
+`alarm daemon status` then tells the truth.
 
 ### Notification (`notify`)
 

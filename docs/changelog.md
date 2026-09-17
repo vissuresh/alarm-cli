@@ -38,6 +38,13 @@ Two kinds of entry live here:
   capability rather than by platform (DR-15), the alarm tone generated with the
   stdlib `wave` module on first use, and every failure path degraded to a log
   line.
+- M5 daemon: `sweep()` (the due/missed decision and the whole of miss
+  detection), the minute-aligned wake loop waiting on a `threading.Event`,
+  double-fork detachment with stdio redirected to `daemon.log`, and
+  `alarm daemon start` / `stop` / `status` with PID-file liveness and stale-file
+  cleanup. The FR-11 no-daemon warning is now wired into `add` and `cancel`.
+- The daemon survives a store broken by hand, and reports a wedged daemon rather
+  than escalating (DR-16).
 
 `alarm --version` is still the only behaviour: the store is built but nothing
 above it is wired up yet. See [project_status.md](project_status.md).
@@ -480,3 +487,35 @@ the `subprocess.run` that follows, arrive through an injected `Environment`.
 - `Environment` is a second testing affordance in a public signature, after
   DR-14. Same trade, same reason: visible in the call, rather than hidden in a
   patched global.
+
+## DR-16 — What the daemon does when something goes wrong (2026-09-17)
+
+**Status:** accepted
+
+**Context.** The wake loop is the one piece of this tool that is supposed to
+still be there in eight hours. Three failures can reach it, and each has an
+obvious wrong answer.
+
+**Decision.**
+
+| Failure | What happens | Why not the alternative |
+| --- | --- | --- |
+| The store cannot be read — hand-edited into invalid JSON | Log it at ERROR, keep waking | Exiting is the obvious reading of "refuse a corrupt store", but it means one bad keystroke silently costs the user their daemon as well as their alarms. Nothing can ring until the file is fixed either way; the difference is whether anything is still there when it is. |
+| `ring()` raises despite promising not to | Log it, keep sweeping; the alarm stays `fired` | It is already committed. Re-arming it would ring it again on the next wake, and letting the exception out would cost every later alarm in the same sweep. |
+| Anything else — a bug | Let it crash | A daemon that swallows its own bugs keeps the PID file, keeps answering "running", and rings nothing. Crashing puts the traceback in `daemon.log`, clears the PID file on the way out, and makes `alarm daemon status` tell the truth. |
+
+`alarm daemon stop` follows the same principle in the other direction: if the
+daemon has not gone within 10 seconds, it says so and leaves the PID file alone,
+rather than escalating to `SIGKILL` on the user's behalf.
+
+**Consequences.**
+- The failure the user is most likely to cause — editing `alarms.json` badly —
+  is the one that is most survivable, and it announces itself once a minute in
+  `daemon.log` until it is fixed.
+- A silent daemon is always either a real daemon with nothing to do, or no
+  daemon at all. There is no third state where it is running but useless.
+- `stop` can fail. That is the point: a wedged process the user has not been
+  told about is worse than an error message, and `kill -9` is theirs to send.
+- The cost is that a corrupt store produces one log line per minute, which in a
+  long-lived daemon is a lot of identical lines. Acceptable: `daemon.log` is
+  already the place you look when something did not ring.

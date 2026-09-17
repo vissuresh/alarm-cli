@@ -2,21 +2,19 @@
 
 **Last updated:** 2026-09-17
 **Version:** 0.1.0 (unreleased)
-**Phase:** in progress — M4 complete
+**Phase:** in progress — M5 complete
 
 ## Where things stand
 
-The client half of the tool works. `alarm add`, `alarm list`, `alarm list --all`
-and `alarm cancel` all do what the spec says, on top of a store that two
-processes can safely share.
+**The tool works end to end.** `alarm daemon start` detaches a daemon that
+survives the terminal it was started from; `alarm add 07:00 -m standup` arms an
+alarm; at 07:00 the daemon wakes, plays the tone, raises the notification and
+marks the alarm `fired`; an alarm that came due while nothing was running is
+marked `missed` instead. `alarm list`, `list --all`, `cancel` and
+`daemon stop`/`status` all behave as specified.
 
-Ringing works too, in the sense that `notify.ring()` plays a tone and raises a
-desktop notification on whatever the machine has, and degrades to a log line on
-whatever it hasn't.
-
-What is missing is the thing that calls it. There is no daemon yet, so an alarm
-sits `armed` past its time and nothing notices. That is M5, and it is the half
-that makes this an alarm clock rather than a list.
+What is left is M6: read the help text end to end as a new user would, verify
+the README against a clean `uv tool install .`, and cut 0.1.0.
 
 | Area | Status |
 | --- | --- |
@@ -29,20 +27,20 @@ that makes this an alarm clock rather than a list.
 | `timeparse` | ✅ done (M2) |
 | Client commands | ✅ done (M3) — `add`, `list`, `list --all`, `cancel` |
 | `notify` | ✅ done (M4) |
-| Daemon | ⬜ not started (M5) |
-| Test suite | 🟡 183 tests — everything built so far; no test plays audio or waits on a clock |
+| Daemon | ✅ done (M5) — sweep, wake loop, detachment, lifecycle |
+| Test suite | ✅ 240 tests in under a second — one starts a real daemon (TD-1), the rest are pure |
 
 ## Next step
 
-M5 — the daemon: `sweep()`, the minute-aligned wake loop, detachment, and
-`start`/`stop`/`status`, on branch `feature/daemon`. See [PLAN.md](../PLAN.md).
-It is the riskiest milestone and the one with the least test coverage by
-design (TD-1).
+M6 — release polish: `alarm --help` read end to end, the 0.1.0 changelog entry,
+this file flipped to shipped, and the README verified against a clean
+`uv tool install .`, on branch `feature/release-0.1.0`. See
+[PLAN.md](../PLAN.md).
 
 ## Open questions
 
-None blocking. Everything needed to start M5 is decided; the decisions and their
-reasoning are recorded in [changelog.md](changelog.md) as DR-1 through DR-15.
+None blocking. Everything needed to start M6 is decided; the decisions and their
+reasoning are recorded in [changelog.md](changelog.md) as DR-1 through DR-16.
 
 ## Update protocol
 
