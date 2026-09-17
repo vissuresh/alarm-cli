@@ -31,7 +31,7 @@ an alarm coming due and ringing on the minute boundary, `list --all`,
 | `notify` | ✅ done (M4) |
 | Daemon | ✅ done (M5) — sweep, wake loop, detachment, lifecycle |
 | Release polish (M6) | ✅ done — help text, changelog, verified install |
-| Test suite | ✅ 245 tests in under a second — one starts a real daemon (TD-1), the rest are pure |
+| Test suite | ✅ 246 tests in under a second — one starts a real daemon (TD-1), the rest are pure |
 
 ## Next step
 

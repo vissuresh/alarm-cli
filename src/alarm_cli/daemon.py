@@ -296,9 +296,24 @@ def _be_the_daemon(root: Path) -> None:
 
     _write_pid(root)
     try:
-        run(root, stop_event=stop_event)
+        _run_logging_failures(root, stop_event)
     finally:
         paths.pid_file(root).unlink(missing_ok=True)
+
+
+def _run_logging_failures(root: Path, stop_event: threading.Event) -> None:
+    """Run the loop, and make sure a bug leaves a traceback behind.
+
+    The daemon leaves through `os._exit`, which runs no handlers and prints
+    nothing — so a crash is written here or it is written nowhere, and a
+    daemon that vanished without a word is the worst thing to debug at 07:00
+    (DR-16, NFR-8).
+    """
+    try:
+        run(root, stop_event=stop_event)
+    except BaseException:
+        log.exception("daemon exiting on an unhandled error")
+        raise
 
 
 def _redirect_stdio(root: Path) -> None:

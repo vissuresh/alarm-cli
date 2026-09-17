@@ -380,6 +380,20 @@ def test_a_daemon_that_will_not_die_is_reported_not_hidden(tmp_path, monkeypatch
     assert paths.pid_file(tmp_path).exists()
 
 
+def test_a_crashing_daemon_leaves_its_traceback_in_the_log(tmp_path, monkeypatch, caplog):
+    # The daemon exits through os._exit, which prints nothing on the way out.
+    def boom(*args, **kwargs):
+        raise MemoryError("out of memory")
+
+    monkeypatch.setattr(daemon, "run", boom)
+
+    with caplog.at_level(logging.ERROR), pytest.raises(MemoryError):
+        daemon._run_logging_failures(tmp_path, threading.Event())
+
+    assert "unhandled error" in caplog.text
+    assert "MemoryError" in caplog.text  # the traceback, not just a sentence
+
+
 # --- the one integration test (TD-1) ---------------------------------------
 
 

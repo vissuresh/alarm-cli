@@ -53,7 +53,7 @@ when it fires.
   lives, and the README install path is verified against a clean
   `uv tool install .`.
 
-Zero runtime dependencies, 245 tests in under a second, and one JSON file you
+Zero runtime dependencies, 246 tests in under a second, and one JSON file you
 can read. Sixteen decision records below say why each part is the shape it is;
 what the tool deliberately does not do is in
 [project_spec.md](../project_spec.md#known-limitations).
