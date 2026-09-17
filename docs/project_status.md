@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-09-17
 **Version:** 0.1.0 (unreleased)
-**Phase:** in progress — M3 complete
+**Phase:** in progress — M4 complete
 
 ## Where things stand
 
@@ -10,9 +10,13 @@ The client half of the tool works. `alarm add`, `alarm list`, `alarm list --all`
 and `alarm cancel` all do what the spec says, on top of a store that two
 processes can safely share.
 
-Nothing rings yet: there is no daemon and no notifier, so an alarm sits `armed`
-until something comes along to fire it. That is M4 and M5, and it is the half
-that makes the tool an alarm clock rather than a list.
+Ringing works too, in the sense that `notify.ring()` plays a tone and raises a
+desktop notification on whatever the machine has, and degrades to a log line on
+whatever it hasn't.
+
+What is missing is the thing that calls it. There is no daemon yet, so an alarm
+sits `armed` past its time and nothing notices. That is M5, and it is the half
+that makes this an alarm clock rather than a list.
 
 | Area | Status |
 | --- | --- |
@@ -24,20 +28,21 @@ that makes the tool an alarm clock rather than a list.
 | `paths` / `model` / `store` | ✅ done (M1) |
 | `timeparse` | ✅ done (M2) |
 | Client commands | ✅ done (M3) — `add`, `list`, `list --all`, `cancel` |
-| `notify` | ⬜ not started (M4) |
+| `notify` | ✅ done (M4) |
 | Daemon | ⬜ not started (M5) |
-| Test suite | 🟡 156 tests — everything built so far; nothing rings yet to test |
+| Test suite | 🟡 183 tests — everything built so far; no test plays audio or waits on a clock |
 
 ## Next step
 
-M4 — `notify`: player and notifier detection, the generated WAV tone, and the
-failure paths that degrade to a log line, on branch `feature/notify`. See
-[PLAN.md](../PLAN.md).
+M5 — the daemon: `sweep()`, the minute-aligned wake loop, detachment, and
+`start`/`stop`/`status`, on branch `feature/daemon`. See [PLAN.md](../PLAN.md).
+It is the riskiest milestone and the one with the least test coverage by
+design (TD-1).
 
 ## Open questions
 
-None blocking. Everything needed to start M4 is decided; the decisions and their
-reasoning are recorded in [changelog.md](changelog.md) as DR-1 through DR-14.
+None blocking. Everything needed to start M5 is decided; the decisions and their
+reasoning are recorded in [changelog.md](changelog.md) as DR-1 through DR-15.
 
 ## Update protocol
 

@@ -231,8 +231,10 @@ sleeping or waiting:
   touches the real `~/.alarm-cli`. Where the root cannot be passed as an
   argument — the M5 integration test drives a real daemon through the console
   script — `ALARM_CLI_HOME` redirects it across the process boundary (DR-11).
-- **`notify` is injectable and subprocess-shaped.** Tests assert on the commands
-  that *would* have run; nothing plays audio in CI.
+- **`notify` is injectable and subprocess-shaped.** Everything it reaches for
+  outside the process — `shutil.which`, `subprocess.run` — arrives in an
+  `Environment`, so tests assert on the commands that *would* have run and the
+  macOS path is covered from Linux (DR-15). Nothing plays audio in CI.
 - **The wake loop is one function.** `sweep()` is called directly in tests; the
   loop around it is trivial enough not to need coverage.
 - **The sleep target is a pure function of `now`.** `seconds_to_next_minute` is

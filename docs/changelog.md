@@ -34,6 +34,10 @@ Two kinds of entry live here:
   `alarm list --all` and `alarm cancel <id>`, with the table, the relative "in
   8h 12m" column and the documented exit codes. `now` and the store root are
   injected at `main()` (DR-14).
+- M4 notification: `notify.ring()` — sound player and desktop notifier chosen by
+  capability rather than by platform (DR-15), the alarm tone generated with the
+  stdlib `wave` module on first use, and every failure path degraded to a log
+  line.
 
 `alarm --version` is still the only behaviour: the store is built but nothing
 above it is wired up yet. See [project_status.md](project_status.md).
@@ -445,3 +449,34 @@ both explicitly. Tests call `main` directly with both pinned.
 - It is a testing affordance in a public signature. That is the price, and it is
   documented rather than hidden: the alternative was an affordance in *global*
   state, which is the same price with none of the visibility.
+
+## DR-15 — Capability detection, not platform detection (2026-09-17)
+
+**Status:** accepted
+
+**Context.** DR-6 settled *what* a ring is: a WAV through the system player plus
+a desktop notification. M4 had to decide how the right binaries are picked. The
+obvious implementation branches on `sys.platform` — `darwin` means `afplay` and
+`osascript`, anything else means `paplay`/`aplay` and `notify-send`.
+
+**Decision.** There is no platform branch. `notify` holds one ordered tuple of
+players (`paplay`, `aplay`, `afplay`) and one of notifiers (`notify-send`,
+`osascript`), and takes the first that `shutil.which` finds. Both lookups, and
+the `subprocess.run` that follows, arrive through an injected `Environment`.
+
+**Consequences.**
+- A machine only has the binaries it has. The list is already the answer, and it
+  is one mechanism instead of two — a platform check would still have to fall
+  back to *some* list when the expected binary was absent.
+- It degrades sideways as well as down: a Linux box with PulseAudio stopped but
+  ALSA present rings through `aplay`, and a `notify-send` installed on macOS
+  would simply be used. Neither case needs a code change.
+- The macOS path is tested on Linux, because "which binaries exist" is an
+  argument rather than an ambient fact. Both platform tests are ordinary unit
+  tests, and nothing in the suite plays audio or pops a notification.
+- The cost is that the order is a policy hard-coded in source (TD-3), and that
+  an unexpected binary on `PATH` with one of these names would be run. Both are
+  acceptable for five well-known names.
+- `Environment` is a second testing affordance in a public signature, after
+  DR-14. Same trade, same reason: visible in the call, rather than hidden in a
+  patched global.

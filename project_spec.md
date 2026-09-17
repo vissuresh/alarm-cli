@@ -6,7 +6,7 @@ the decisions behind the design, with dates, live in
 [docs/changelog.md](docs/changelog.md).
 
 - **Version:** 0.1.0 (unreleased)
-- **Status:** in progress — M3 (client commands) complete; see [docs/project_status.md](docs/project_status.md)
+- **Status:** in progress — M4 (notification) complete; see [docs/project_status.md](docs/project_status.md)
 
 ---
 
@@ -312,12 +312,23 @@ loud about it.
 
 - **Sound:** the first available of `paplay`, `aplay` (Linux), `afplay` (macOS),
   invoked on `~/.alarm-cli/alarm.wav`. If that file is absent it is generated on
-  first use — a short sine-wave tone written with the stdlib `wave` module, so
-  the repo ships no binary asset (NFR-2). Users can replace it with any WAV.
+  first use — a 1.2-second 880 Hz sine at 35% of full scale, ramped in and out
+  over 10 ms so it does not click, written with the stdlib `wave` module, so the
+  repo ships no binary asset (NFR-2). Users can replace it with any WAV; a file
+  that is already there is never regenerated.
 - **Desktop:** `notify-send -u critical "Alarm" "<message>"` on Linux,
-  `osascript -e 'display notification ...'` on macOS.
-- Each call is a `subprocess.run` with a short timeout. Missing binary, non-zero
-  exit, or timeout is logged and swallowed (NFR-5).
+  `osascript -e 'display notification "<message>" with title "Alarm"'` on macOS.
+  An alarm with no message reads `Time's up`. The message is passed as an argv
+  element, never through a shell; for `osascript` it is escaped for AppleScript's
+  own string quoting.
+- Which of those exists is decided by looking the binaries up in `PATH`, in that
+  fixed order — never by asking what platform this is (DR-15).
+- Each call is a `subprocess.run` with `capture_output` and a 10-second timeout.
+  A missing binary, a non-zero exit, a timeout and an `OSError` are each logged
+  and swallowed (NFR-5).
+- The sound and the notification are independent: a machine with no speaker
+  still gets the popup, and a machine with no notifier still gets the tone.
+  `ring()` returns nothing and raises nothing at all.
 
 ### Concurrency
 
