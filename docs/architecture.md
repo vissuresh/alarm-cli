@@ -35,7 +35,7 @@ would buy.
 
 | Module | Owns | Must not |
 | --- | --- | --- |
-| `cli.py` | argparse surface, output formatting, exit codes | contain scheduling or storage logic |
+| `cli.py` | argparse surface, output formatting, exit codes | contain scheduling or storage logic, or read the clock anywhere but its entry point |
 | `store.py` | load/save, locking, atomic replace, id allocation | know what an alarm *means* |
 | `model.py` | the `Alarm` dataclass, `AlarmState`, JSON (de)serialisation, record invariants | touch the filesystem |
 | `timeparse.py` | `"HH:MM"` + `now` → aware `datetime` | read the clock itself |
@@ -224,6 +224,9 @@ sleeping or waiting:
 - **`now` is always a parameter.** `timeparse.next_occurrence` and the sweep both
   take the current time from the caller. Tests pass a fixed `datetime`; nothing
   mocks the clock globally.
+- **The commands share that seam.** `main(argv, *, now=None, root=None)` defaults
+  both at the entry point and passes them down, so a command is tested through
+  its real parsing and its real exit code without a subprocess (DR-14).
 - **`store` takes a root directory.** Tests point it at `tmp_path`; no test ever
   touches the real `~/.alarm-cli`. Where the root cannot be passed as an
   argument — the M5 integration test drives a real daemon through the console

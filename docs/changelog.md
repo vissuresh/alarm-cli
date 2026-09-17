@@ -30,6 +30,10 @@ Two kinds of entry live here:
 - M2 time resolution: `timeparse.next_occurrence("HH:MM", now)`, which resolves
   a typed clock time to the next instant it names — today if still ahead,
   tomorrow otherwise — and refuses anything it cannot read literally (DR-13).
+- M3 client commands: `alarm add <HH:MM> [-m MSG]`, `alarm list`,
+  `alarm list --all` and `alarm cancel <id>`, with the table, the relative "in
+  8h 12m" column and the documented exit codes. `now` and the store root are
+  injected at `main()` (DR-14).
 
 `alarm --version` is still the only behaviour: the store is built but nothing
 above it is wired up yet. See [project_status.md](project_status.md).
@@ -404,3 +408,40 @@ one *strictly after* `now`, so a time that is exactly now resolves to tomorrow.
 - The parser stays a pure function of `(hhmm, now)`: no clock, no locale, no
   timezone database lookup. Countdown timers (`alarm timer 10m`) would need a
   second parser, not a looser one — and the wake loop before that (limitation 8).
+
+## DR-14 — `now` and the store root are parameters of `main()` (2026-09-17)
+
+**Status:** accepted
+
+**Context.** Every layer below `cli` already takes its clock and its root as
+arguments — that is what DR-11 and the `now`-is-a-parameter rule buy. The
+commands themselves are where those arguments have to come from, and the choice
+decides whether the commands can be tested at all.
+
+| Option | Why not |
+| --- | --- |
+| Read the clock and the root inside each command | Every command test then needs a patched `datetime.now`, and a test that forgets writes to the user's real `~/.alarm-cli`. The seam exists everywhere except the layer that needs it most. |
+| A module-level clock/root object the tests swap out | Global mutable state, order-dependent tests, and a swap that outlives the test that made it. |
+| Drive the console script as a subprocess | Tests the real entry point, but is slow, cannot pin `now` without an environment channel, and turns an assertion about a message into an assertion about stdout parsing. |
+| **Keyword parameters on `main()`** | Chosen. |
+
+**Decision.** `main(argv, *, now=None, root=None)`. Both default at the entry
+point — `now` to `datetime.now().astimezone()`, `root` to `None`, which `paths`
+resolves from `ALARM_CLI_HOME` or `~/.alarm-cli`. The command functions take
+both explicitly. Tests call `main` directly with both pinned.
+
+**Consequences.**
+- Every command is tested through its real argument parsing and its real exit
+  code, at a fixed instant, against a `tmp_path` store — no subprocess, no
+  patched clock, no global state. The whole M3 suite runs in a third of a
+  second.
+- The clock is read exactly once per run, so a command that writes several
+  timestamps cannot straddle a second boundary and disagree with itself.
+- The console script is unaffected: `alarm = alarm_cli.cli:main` still takes no
+  arguments.
+- The keyword-only `*` matters. `main(["list"], tmp_path)` would otherwise be a
+  silent mis-binding to `now`, and the first thing it would do is write to the
+  real home directory.
+- It is a testing affordance in a public signature. That is the price, and it is
+  documented rather than hidden: the alternative was an affordance in *global*
+  state, which is the same price with none of the visibility.

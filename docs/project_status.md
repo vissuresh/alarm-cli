@@ -2,15 +2,17 @@
 
 **Last updated:** 2026-09-17
 **Version:** 0.1.0 (unreleased)
-**Phase:** in progress — M2 complete
+**Phase:** in progress — M3 complete
 
 ## Where things stand
 
-The design is complete and agreed. The package installs, and both layers under
-the commands are built and tested: alarms can be created, persisted, read back
-and moved to a terminal state safely under two writers, and a typed `HH:MM`
-resolves to the next instant it names. Nothing is wired up to a command yet, so
-`alarm --version` is still the whole of the user-facing behaviour.
+The client half of the tool works. `alarm add`, `alarm list`, `alarm list --all`
+and `alarm cancel` all do what the spec says, on top of a store that two
+processes can safely share.
+
+Nothing rings yet: there is no daemon and no notifier, so an alarm sits `armed`
+until something comes along to fire it. That is M4 and M5, and it is the half
+that makes the tool an alarm clock rather than a list.
 
 | Area | Status |
 | --- | --- |
@@ -21,20 +23,21 @@ resolves to the next instant it names. Nothing is wired up to a command yet, so
 | Package skeleton (`src/alarm_cli/`) | ✅ stubs in place (M0) |
 | `paths` / `model` / `store` | ✅ done (M1) |
 | `timeparse` | ✅ done (M2) |
-| Client commands | ⬜ not started (M3) |
+| Client commands | ✅ done (M3) — `add`, `list`, `list --all`, `cancel` |
 | `notify` | ⬜ not started (M4) |
 | Daemon | ⬜ not started (M5) |
-| Test suite | 🟡 107 tests — smoke, paths, model, store, timeparse; no command is covered yet |
+| Test suite | 🟡 156 tests — everything built so far; nothing rings yet to test |
 
 ## Next step
 
-M3 — the client commands `add`, `list`, `list --all` and `cancel`, on branch
-`feature/cli-commands`. See [PLAN.md](../PLAN.md).
+M4 — `notify`: player and notifier detection, the generated WAV tone, and the
+failure paths that degrade to a log line, on branch `feature/notify`. See
+[PLAN.md](../PLAN.md).
 
 ## Open questions
 
-None blocking. Everything needed to start M3 is decided; the decisions and their
-reasoning are recorded in [changelog.md](changelog.md) as DR-1 through DR-13.
+None blocking. Everything needed to start M4 is decided; the decisions and their
+reasoning are recorded in [changelog.md](changelog.md) as DR-1 through DR-14.
 
 ## Update protocol
 

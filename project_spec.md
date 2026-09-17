@@ -6,7 +6,7 @@ the decisions behind the design, with dates, live in
 [docs/changelog.md](docs/changelog.md).
 
 - **Version:** 0.1.0 (unreleased)
-- **Status:** in progress — M2 (time resolution) complete; see [docs/project_status.md](docs/project_status.md)
+- **Status:** in progress — M3 (client commands) complete; see [docs/project_status.md](docs/project_status.md)
 
 ---
 
@@ -198,11 +198,41 @@ write.
 | Command | Reads | Writes | Behaviour |
 | --- | --- | --- | --- |
 | `alarm add <HH:MM> [-m MSG]` | store | store | Resolve next occurrence, append `armed` alarm, bump `next_id`, print id and resolved time. Warn if no daemon (FR-11). |
-| `alarm list [--all]` | store | — | Armed alarms sorted by `fire_at`; `--all` appends terminal-state alarms sorted by `resolved_at`. |
+| `alarm list [--all]` | store | — | Armed alarms sorted by `fire_at`; `--all` appends terminal-state alarms sorted by `resolved_at`, as a second table. |
 | `alarm cancel <id>` | store | store | `armed` → `cancelled`, stamp `resolved_at`. |
 | `alarm daemon start` | pid file | pid file, log | Refuse if a live daemon holds the PID file; otherwise detach and run the wake loop. |
 | `alarm daemon stop` | pid file | pid file | `SIGTERM` the daemon, wait for exit, remove the PID file. |
 | `alarm daemon status` | pid file | — | Print running + PID, or not running. Clears a stale PID file it finds. |
+
+### Output
+
+`add` confirms with the resolved absolute time, so the user can see which day it
+landed on:
+
+```
+alarm 1 set for 2026-09-17 07:00 (in 8h 12m)
+```
+
+`list` prints a table whose columns are padded to their widest cell, two spaces
+between them; `--all` appends a second table for terminal states, separated by a
+blank line:
+
+```
+ID  FIRES AT          IN      MESSAGE
+2   2026-09-16 23:30  42m     tea
+1   2026-09-17 07:00  8h 12m  standup
+
+ID  FIRES AT          STATE   RESOLVED AT       MESSAGE
+4   2026-09-16 18:00  fired   2026-09-16 18:00  walk
+3   2026-09-16 14:30  missed  2026-09-16 18:20  -
+```
+
+An empty table is a sentence instead: `no armed alarms`, `no past alarms`. A
+missing message shows as `-`.
+
+The `IN` column is truncated, never rounded up: `8h 12m`, `42m`, `<1m` under a
+minute, `due` for an armed alarm whose time has passed with nothing running to
+ring it.
 
 ### Time resolution (`timeparse`)
 

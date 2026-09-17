@@ -6,8 +6,8 @@ Set an alarm for a clock time, get on with your work, and be interrupted by a
 sound and a desktop notification when the time comes. No database, no GUI, no
 third-party packages.
 
-> **Status: in progress.** The design is settled, and the storage and
-> time-resolution layers are built; the commands below are not wired up yet. See
+> **Status: in progress.** `add`, `list` and `cancel` work. The daemon does
+> not exist yet, so nothing rings — that is M4 and M5. See
 > [docs/project_status.md](docs/project_status.md) for what exists today and
 > [PLAN.md](PLAN.md) for the build order.
 
@@ -62,16 +62,29 @@ alarm add 14:30
 Times are 24-hour and zero-padded — `07:00`, not `7:00` or `7am`. Anything else
 is refused rather than guessed at.
 
-See what is armed:
+See what is armed, soonest first:
 
 ```sh
 alarm list
 ```
 
 ```
-ID  FIRES AT           IN       MESSAGE
-1   2026-09-17 07:00   8h 12m   standup
-2   2026-09-16 14:30   1h 02m   -
+ID  FIRES AT          IN      MESSAGE
+2   2026-09-16 23:30  42m     tea
+1   2026-09-17 07:00  8h 12m  standup
+```
+
+`alarm list --all` adds the alarms that already fired, were missed, or were
+cancelled, with the time each one reached that state:
+
+```
+ID  FIRES AT          IN      MESSAGE
+2   2026-09-16 23:30  42m     tea
+1   2026-09-17 07:00  8h 12m  standup
+
+ID  FIRES AT          STATE   RESOLVED AT       MESSAGE
+4   2026-09-16 18:00  fired   2026-09-16 18:00  walk
+3   2026-09-16 14:30  missed  2026-09-16 18:20  -
 ```
 
 Cancel one, or check on the daemon:
@@ -82,8 +95,8 @@ alarm daemon status
 alarm daemon stop
 ```
 
-`alarm list --all` includes alarms that already fired, were missed, or were
-cancelled.
+Ids are never reused, so a cancelled id in your shell history can never later
+hit a different alarm.
 
 ## Missed alarms
 
