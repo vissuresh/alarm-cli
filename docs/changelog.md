@@ -13,7 +13,11 @@ Two kinds of entry live here:
 
 ---
 
-## [Unreleased]
+## [0.1.0] — 2026-09-17
+
+First release. A one-off alarm clock for the terminal: set an alarm for a clock
+time, close the terminal, get interrupted by a sound and a desktop notification
+when it fires.
 
 ### Added
 - Full documentation set: `README.md`, `project_spec.md`, `PLAN.md`,
@@ -22,9 +26,37 @@ Two kinds of entry live here:
 - M0 scaffolding: `pyproject.toml` with no runtime dependencies and the `alarm`
   console script, the `src/alarm_cli/` package with one stub module per the
   documented layout, and a `tests/` smoke test.
+- M1 storage layer: `paths` (the five files under a redirectable root),
+  `model` (`AlarmState`, the frozen `Alarm` record, its invariants and its JSON
+  shape) and `store` (shared/exclusive `flock`, atomic temp-file-plus-rename
+  writes, id allocation, and refusal of a store it cannot understand).
+- `ALARM_CLI_HOME` overrides the state directory (DR-11).
+- M2 time resolution: `timeparse.next_occurrence("HH:MM", now)`, which resolves
+  a typed clock time to the next instant it names — today if still ahead,
+  tomorrow otherwise — and refuses anything it cannot read literally (DR-13).
+- M3 client commands: `alarm add <HH:MM> [-m MSG]`, `alarm list`,
+  `alarm list --all` and `alarm cancel <id>`, with the table, the relative "in
+  8h 12m" column and the documented exit codes. `now` and the store root are
+  injected at `main()` (DR-14).
+- M4 notification: `notify.ring()` — sound player and desktop notifier chosen by
+  capability rather than by platform (DR-15), the alarm tone generated with the
+  stdlib `wave` module on first use, and every failure path degraded to a log
+  line.
+- M5 daemon: `sweep()` (the due/missed decision and the whole of miss
+  detection), the minute-aligned wake loop waiting on a `threading.Event`,
+  double-fork detachment with stdio redirected to `daemon.log`, and
+  `alarm daemon start` / `stop` / `status` with PID-file liveness and stale-file
+  cleanup. The FR-11 no-daemon warning is now wired into `add` and `cancel`.
+- The daemon survives a store broken by hand, and reports a wedged daemon rather
+  than escalating (DR-16).
+- M6 release polish: `alarm --help` carries a quickstart and says where state
+  lives, and the README install path is verified against a clean
+  `uv tool install .`.
 
-`alarm --version` is the only behaviour so far; every module below `cli` is a
-stub. See [project_status.md](project_status.md).
+Zero runtime dependencies, 246 tests in under a second, and one JSON file you
+can read. Sixteen decision records below say why each part is the shape it is;
+what the tool deliberately does not do is in
+[project_spec.md](../project_spec.md#known-limitations).
 
 ---
 
@@ -288,3 +320,211 @@ spec cannot disagree.
 - The version string is duplicated in prose (`project_spec.md`,
   `docs/project_status.md`); those are documentation and are updated by the
   release milestone (M6), not by the build.
+
+## DR-11 — The state root is redirectable, by argument and by environment (2026-09-17)
+
+**Status:** accepted
+
+**Context.** DR-5 puts everything in `~/.alarm-cli/`. Every test in the suite has
+to reach a different directory instead, or it eventually deletes somebody's real
+alarms — a constraint the plan states outright. Three ways to give a caller that:
+
+| Option | Why not |
+| --- | --- |
+| Monkeypatch `Path.home()` in tests | Global, invisible at the call site, and does nothing for the M5 test, which drives a real `alarm` process that has its own `Path.home()`. |
+| A `--root` flag on every command | Puts a debugging affordance in the user-facing surface of every command, and still has to be threaded through the client *and* remembered for the daemon. |
+| **Optional root argument, plus `ALARM_CLI_HOME`** | Chosen. |
+
+**Decision.** Every `paths` accessor and every `store` entry point takes an
+optional root. When it is `None`, the root comes from `ALARM_CLI_HOME` if set and
+`~/.alarm-cli` otherwise, resolved on each call rather than at import.
+
+**Consequences.**
+- Unit tests pass `tmp_path` explicitly; the redirection is visible in the test
+  that relies on it rather than hidden in a fixture.
+- The M5 integration test, which starts a real detached daemon through the
+  console script, has a way to redirect it — an argument cannot cross that
+  boundary. This is the reason the environment variable exists at all.
+- It becomes a user-facing feature, documented in the README: a second set of
+  alarms is a second `ALARM_CLI_HOME`. The failure mode is a user who exports it
+  in one shell and starts the daemon from another, so the two halves read
+  different files. Documented rather than defended against — the alternative is
+  the daemon recording its root somewhere and the client checking it, which is
+  the client↔daemon coupling DR-1 exists to avoid.
+- Reading the variable per call, not at import, keeps `monkeypatch.setenv`
+  working and means no module needs reloading.
+
+## DR-12 — `transaction()` is the read-modify-write primitive (2026-09-17)
+
+**Status:** accepted
+
+**Context.** Both processes read-modify-write one file (DR-8), under `flock` with
+an atomic rename. The question M1 had to settle is what the store *offers*, since
+whatever it offers is what every caller will reach for.
+
+A bare `load()`/`save()` pair is the obvious API and it is quietly wrong: the
+lock is released between the two, so a daemon sweep landing between a client's
+`load` and its `save` is overwritten with no error anywhere. The lock is only
+worth having if it is held across the whole sequence, and an API that makes the
+correct usage the longer one will eventually be used the short way.
+
+**Decision.** `store.transaction(root)` is a context manager that takes
+`LOCK_EX`, reads the store, yields it, and writes back on exit — but only if the
+serialised document actually changed. `load()` (shared lock) and `save()` remain
+for readers and for writing a store built from nothing. Records are immutable:
+`alarm.resolve(state, at)` returns a new `Alarm` and the caller swaps it in by
+id.
+
+**Consequences.**
+- The correct thing is the short thing. `with store.transaction() as s:` is less
+  to type than `load` then `save`, and there is no way to hold it wrongly.
+- The daemon's once-a-minute sweep over an unchanged store performs no write,
+  which is what NFR-4 asks for. The dirty check compares the serialised payload
+  rather than tracking mutations — a few kilobytes of `json.dumps` against a
+  guarantee that nothing can change the store without the check noticing.
+- If the body raises, nothing is written. A bug in the sweep cannot half-apply a
+  batch of state changes.
+- `flock` is per file descriptor, so calling `load` or `save` inside a
+  `transaction` deadlocks against a lock this process already holds. That is a
+  real trap; it is documented at the top of the module, and the one-way import
+  direction means only `cli` and `daemon` can hit it.
+- Immutable records cost a `dataclasses.replace` and an `update()` by id per
+  transition, and buy an invariant check on every record that enters the system
+  — including records read from a file the user hand-edited.
+
+## DR-13 — `HH:MM` is taken literally, and "now" means tomorrow (2026-09-17)
+
+**Status:** accepted
+
+**Context.** M2 had to settle how forgiving `alarm add <time>` is. The obvious
+implementation, `datetime.strptime(value, "%H:%M")`, is more forgiving than it
+looks: it accepts `7:00` and `7:0`, which is how the question surfaced at all.
+Beyond it sits a spectrum — accept `7pm`, `0700`, `7`, a natural-language
+parser — and at the far end, `python-dateutil`, which DR-4 has already refused.
+
+The second question is what `alarm add 14:30` means when it is exactly
+14:30:00.
+
+**Decision.** The accepted form is exactly two ASCII digits, a colon, two more,
+within `00`–`23` and `00`–`59`. Anything else is refused with a message naming
+that form; only surrounding whitespace is forgiven. The next occurrence is the
+one *strictly after* `now`, so a time that is exactly now resolves to tomorrow.
+
+**Consequences.**
+- The failure is loud and immediate, at the moment the user is still looking at
+  the terminal. Guessing wrong is silent until 07:00 does not happen — an alarm
+  clock has an unusually bad worst case for leniency, and a user who typed
+  `7:00` is two keystrokes from being right.
+- `\d` would have been wrong in the same quiet way: it matches the full-width
+  digits a copy-paste can carry in, so `１２:３０` would have become 12:30. The
+  pattern is `[0-9]`, and there is a test for it.
+- `24:00` is refused rather than folded to midnight. There is already a spelling
+  for that instant, and the fold would silently move the alarm to a different
+  day.
+- "Strictly after" means an alarm can never be created already due. The
+  alternative — resolving to today and having the daemon fire it on the next
+  wake — makes `alarm add 14:30` at 14:30:00 do one of two very different things
+  depending on which side of the second it lands.
+- The parser stays a pure function of `(hhmm, now)`: no clock, no locale, no
+  timezone database lookup. Countdown timers (`alarm timer 10m`) would need a
+  second parser, not a looser one — and the wake loop before that (limitation 8).
+
+## DR-14 — `now` and the store root are parameters of `main()` (2026-09-17)
+
+**Status:** accepted
+
+**Context.** Every layer below `cli` already takes its clock and its root as
+arguments — that is what DR-11 and the `now`-is-a-parameter rule buy. The
+commands themselves are where those arguments have to come from, and the choice
+decides whether the commands can be tested at all.
+
+| Option | Why not |
+| --- | --- |
+| Read the clock and the root inside each command | Every command test then needs a patched `datetime.now`, and a test that forgets writes to the user's real `~/.alarm-cli`. The seam exists everywhere except the layer that needs it most. |
+| A module-level clock/root object the tests swap out | Global mutable state, order-dependent tests, and a swap that outlives the test that made it. |
+| Drive the console script as a subprocess | Tests the real entry point, but is slow, cannot pin `now` without an environment channel, and turns an assertion about a message into an assertion about stdout parsing. |
+| **Keyword parameters on `main()`** | Chosen. |
+
+**Decision.** `main(argv, *, now=None, root=None)`. Both default at the entry
+point — `now` to `datetime.now().astimezone()`, `root` to `None`, which `paths`
+resolves from `ALARM_CLI_HOME` or `~/.alarm-cli`. The command functions take
+both explicitly. Tests call `main` directly with both pinned.
+
+**Consequences.**
+- Every command is tested through its real argument parsing and its real exit
+  code, at a fixed instant, against a `tmp_path` store — no subprocess, no
+  patched clock, no global state. The whole M3 suite runs in a third of a
+  second.
+- The clock is read exactly once per run, so a command that writes several
+  timestamps cannot straddle a second boundary and disagree with itself.
+- The console script is unaffected: `alarm = alarm_cli.cli:main` still takes no
+  arguments.
+- The keyword-only `*` matters. `main(["list"], tmp_path)` would otherwise be a
+  silent mis-binding to `now`, and the first thing it would do is write to the
+  real home directory.
+- It is a testing affordance in a public signature. That is the price, and it is
+  documented rather than hidden: the alternative was an affordance in *global*
+  state, which is the same price with none of the visibility.
+
+## DR-15 — Capability detection, not platform detection (2026-09-17)
+
+**Status:** accepted
+
+**Context.** DR-6 settled *what* a ring is: a WAV through the system player plus
+a desktop notification. M4 had to decide how the right binaries are picked. The
+obvious implementation branches on `sys.platform` — `darwin` means `afplay` and
+`osascript`, anything else means `paplay`/`aplay` and `notify-send`.
+
+**Decision.** There is no platform branch. `notify` holds one ordered tuple of
+players (`paplay`, `aplay`, `afplay`) and one of notifiers (`notify-send`,
+`osascript`), and takes the first that `shutil.which` finds. Both lookups, and
+the `subprocess.run` that follows, arrive through an injected `Environment`.
+
+**Consequences.**
+- A machine only has the binaries it has. The list is already the answer, and it
+  is one mechanism instead of two — a platform check would still have to fall
+  back to *some* list when the expected binary was absent.
+- It degrades sideways as well as down: a Linux box with PulseAudio stopped but
+  ALSA present rings through `aplay`, and a `notify-send` installed on macOS
+  would simply be used. Neither case needs a code change.
+- The macOS path is tested on Linux, because "which binaries exist" is an
+  argument rather than an ambient fact. Both platform tests are ordinary unit
+  tests, and nothing in the suite plays audio or pops a notification.
+- The cost is that the order is a policy hard-coded in source (TD-3), and that
+  an unexpected binary on `PATH` with one of these names would be run. Both are
+  acceptable for five well-known names.
+- `Environment` is a second testing affordance in a public signature, after
+  DR-14. Same trade, same reason: visible in the call, rather than hidden in a
+  patched global.
+
+## DR-16 — What the daemon does when something goes wrong (2026-09-17)
+
+**Status:** accepted
+
+**Context.** The wake loop is the one piece of this tool that is supposed to
+still be there in eight hours. Three failures can reach it, and each has an
+obvious wrong answer.
+
+**Decision.**
+
+| Failure | What happens | Why not the alternative |
+| --- | --- | --- |
+| The store cannot be read — hand-edited into invalid JSON | Log it at ERROR, keep waking | Exiting is the obvious reading of "refuse a corrupt store", but it means one bad keystroke silently costs the user their daemon as well as their alarms. Nothing can ring until the file is fixed either way; the difference is whether anything is still there when it is. |
+| `ring()` raises despite promising not to | Log it, keep sweeping; the alarm stays `fired` | It is already committed. Re-arming it would ring it again on the next wake, and letting the exception out would cost every later alarm in the same sweep. |
+| Anything else — a bug | Let it crash | A daemon that swallows its own bugs keeps the PID file, keeps answering "running", and rings nothing. Crashing puts the traceback in `daemon.log`, clears the PID file on the way out, and makes `alarm daemon status` tell the truth. |
+
+`alarm daemon stop` follows the same principle in the other direction: if the
+daemon has not gone within 10 seconds, it says so and leaves the PID file alone,
+rather than escalating to `SIGKILL` on the user's behalf.
+
+**Consequences.**
+- The failure the user is most likely to cause — editing `alarms.json` badly —
+  is the one that is most survivable, and it announces itself once a minute in
+  `daemon.log` until it is fixed.
+- A silent daemon is always either a real daemon with nothing to do, or no
+  daemon at all. There is no third state where it is running but useless.
+- `stop` can fail. That is the point: a wedged process the user has not been
+  told about is worse than an error message, and `kill -9` is theirs to send.
+- The cost is that a corrupt store produces one log line per minute, which in a
+  long-lived daemon is a lot of identical lines. Acceptable: `daemon.log` is
+  already the place you look when something did not ring.

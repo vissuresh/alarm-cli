@@ -35,9 +35,9 @@ would buy.
 
 | Module | Owns | Must not |
 | --- | --- | --- |
-| `cli.py` | argparse surface, output formatting, exit codes | contain scheduling or storage logic |
+| `cli.py` | argparse surface, output formatting, exit codes | contain scheduling or storage logic, or read the clock anywhere but its entry point |
 | `store.py` | load/save, locking, atomic replace, id allocation | know what an alarm *means* |
-| `model.py` | the `Alarm` dataclass, `AlarmState`, JSON (de)serialisation | touch the filesystem |
+| `model.py` | the `Alarm` dataclass, `AlarmState`, JSON (de)serialisation, record invariants | touch the filesystem |
 | `timeparse.py` | `"HH:MM"` + `now` → aware `datetime` | read the clock itself |
 | `daemon.py` | detach, PID file, wake loop, due/missed decisions | format user-facing output |
 | `notify.py` | sound and desktop notification, degradation | raise into the caller |
@@ -55,6 +55,14 @@ all ──> paths
 
 Nothing imports `cli`. That is what makes every layer testable without spawning a
 process.
+
+`Alarm` is frozen, and a state change produces a new record
+(`alarm.resolve(state, at)`) that the store swaps in by id. A transition is
+therefore either fully applied or not applied at all, in memory as well as on
+disk, and no list can be left holding a half-updated alarm. The invariants — an
+offset on every timestamp, `resolved_at` present exactly when the state is
+terminal — are checked on construction, so they hold for records read from a
+hand-edited file as much as for ones the client just built.
 
 ## Data flow: setting an alarm
 
@@ -154,6 +162,15 @@ alarm daemon stop   -> SIGTERM the pid, wait for exit, clean the pid file
 alarm daemon status -> report pid + liveness, clearing a stale pid file
 ```
 
+`start` returns only once the detached daemon has published a PID that is
+actually alive, so `alarm daemon start` exiting 0 means there is a daemon, not
+that one was attempted. Liveness is always `os.kill(pid, 0)` rather than the
+PID file's existence, because a PID file in `$HOME` outlives a reboot (DR-5).
+
+Inside the daemon, `logging` is pointed at stderr, which detachment has already
+pointed at `daemon.log`; every ring, miss, signal and traceback lands there with
+a timestamp (NFR-8).
+
 The double fork is what lets an alarm survive closing the terminal that set it:
 after `setsid` the daemon is in its own session with no controlling terminal, so
 the shell's SIGHUP on exit never reaches it.
@@ -178,8 +195,31 @@ separate file from the data so that replacing the data file cannot drop the lock
 Read-only commands take `LOCK_SH`.
 
 Writes are `tempfile` in the same directory → `os.replace`, which is atomic on
-POSIX. A crash therefore leaves the store either fully old or fully new, never
-half-written (FR-12).
+POSIX, with an `fsync` of the file before the rename and of the directory after
+it — durable bytes and a durable rename are not the same guarantee. A crash
+therefore leaves the store either fully old or fully new, never half-written
+(FR-12), and a failed write leaves no temp file behind.
+
+`store` exposes three entry points, and which one a caller reaches for is the
+whole of the concurrency discipline:
+
+| Entry point | Lock | For |
+| --- | --- | --- |
+| `load(root)` | `LOCK_SH` | readers: `list`, `status` |
+| `save(store, root)` | `LOCK_EX` | writing a store built from nothing |
+| `transaction(root)` | `LOCK_EX`, held across read *and* write | every read-modify-write |
+
+Anything that changes an existing alarm uses `transaction`. `load` then `save`
+leaves a window between the two in which the other process can write, and the
+second writer wins silently — the exact race the lock exists to prevent.
+`transaction` writes back only when the caller actually changed something, which
+is what keeps the daemon's once-a-minute sweep over an unchanged store free
+(NFR-4).
+
+The locks are per file descriptor, so `load` or `save` *inside* a `transaction`
+waits on a lock this process already holds and never returns. The one-way import
+direction keeps that from arising by accident: only `cli` and `daemon` open
+transactions, and neither calls the other.
 
 The client holds the lock for microseconds; the daemon holds it for one sweep per
 minute. Contention is not a concern at this scale, and no lock is ever held
@@ -193,10 +233,17 @@ sleeping or waiting:
 - **`now` is always a parameter.** `timeparse.next_occurrence` and the sweep both
   take the current time from the caller. Tests pass a fixed `datetime`; nothing
   mocks the clock globally.
+- **The commands share that seam.** `main(argv, *, now=None, root=None)` defaults
+  both at the entry point and passes them down, so a command is tested through
+  its real parsing and its real exit code without a subprocess (DR-14).
 - **`store` takes a root directory.** Tests point it at `tmp_path`; no test ever
-  touches the real `~/.alarm-cli`.
-- **`notify` is injectable and subprocess-shaped.** Tests assert on the commands
-  that *would* have run; nothing plays audio in CI.
+  touches the real `~/.alarm-cli`. Where the root cannot be passed as an
+  argument — the M5 integration test drives a real daemon through the console
+  script — `ALARM_CLI_HOME` redirects it across the process boundary (DR-11).
+- **`notify` is injectable and subprocess-shaped.** Everything it reaches for
+  outside the process — `shutil.which`, `subprocess.run` — arrives in an
+  `Environment`, so tests assert on the commands that *would* have run and the
+  macOS path is covered from Linux (DR-15). Nothing plays audio in CI.
 - **The wake loop is one function.** `sweep()` is called directly in tests; the
   loop around it is trivial enough not to need coverage.
 - **The sleep target is a pure function of `now`.** `seconds_to_next_minute` is

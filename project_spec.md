@@ -5,8 +5,8 @@ System design and diagrams live in [docs/architecture.md](docs/architecture.md);
 the decisions behind the design, with dates, live in
 [docs/changelog.md](docs/changelog.md).
 
-- **Version:** 0.1.0 (unreleased)
-- **Status:** in progress — M0 (scaffolding) complete; see [docs/project_status.md](docs/project_status.md)
+- **Version:** 0.1.0
+- **Status:** shipped — every requirement below is implemented and tested; see [docs/project_status.md](docs/project_status.md)
 
 ---
 
@@ -104,7 +104,7 @@ networked operation. Each is a deliberate cut, recorded with its reasoning in
 Python 3.12+, standard library only: `argparse`, `json`, `datetime`, `pathlib`,
 `subprocess`, `signal`, `fcntl`, `os`, `wave`, `logging`. Tests use `pytest`.
 
-Package layout (every module below `cli` is a stub until its milestone):
+Package layout:
 
 ```
 src/alarm_cli/
@@ -121,6 +121,10 @@ tests/
 Dependency direction is strictly one-way: `cli` → {`store`, `daemon`,
 `timeparse`} → {`model`, `paths`}, and `daemon` → {`store`, `notify`}. Nothing
 imports `cli`.
+
+Every `paths` accessor takes an optional root, so a caller can redirect the whole
+tree; `ALARM_CLI_HOME` does the same across a process boundary, for callers
+reached by spawning `alarm` rather than by calling a function (DR-11).
 
 ## 2. JSON structure
 
@@ -172,9 +176,19 @@ armed ──ring (due, within grace)──> fired
 ```
 
 **Missing or empty file** is not an error: it is treated as
-`{"schema_version": 1, "next_id": 1, "alarms": []}`. **Malformed JSON** is an
-error — the store is left untouched and the user is told to inspect or delete the
-file, because silently resetting would destroy alarms.
+`{"schema_version": 1, "next_id": 1, "alarms": []}`.
+
+Anything else that cannot be read as a store is **refused**, with the path in the
+message: the file is left untouched and the user is told to inspect or delete it,
+because silently resetting would destroy alarms. The refusals are malformed JSON,
+a `schema_version` that is not `1`, a missing or non-positive `next_id`, an
+`alarms` value that is not a list, an alarm record with a missing, mistyped or
+unparseable field, a naive `fire_at`/`created_at`/`resolved_at`, a state and
+`resolved_at` that contradict each other, two alarms sharing an id, and a
+`next_id` at or below an existing id — which would hand two alarms the same id.
+
+Reading an absent store does not create one; the file appears on the first
+write.
 
 ## 3. Available commands and flows
 
@@ -184,11 +198,41 @@ file, because silently resetting would destroy alarms.
 | Command | Reads | Writes | Behaviour |
 | --- | --- | --- | --- |
 | `alarm add <HH:MM> [-m MSG]` | store | store | Resolve next occurrence, append `armed` alarm, bump `next_id`, print id and resolved time. Warn if no daemon (FR-11). |
-| `alarm list [--all]` | store | — | Armed alarms sorted by `fire_at`; `--all` appends terminal-state alarms sorted by `resolved_at`. |
+| `alarm list [--all]` | store | — | Armed alarms sorted by `fire_at`; `--all` appends terminal-state alarms sorted by `resolved_at`, as a second table. |
 | `alarm cancel <id>` | store | store | `armed` → `cancelled`, stamp `resolved_at`. |
 | `alarm daemon start` | pid file | pid file, log | Refuse if a live daemon holds the PID file; otherwise detach and run the wake loop. |
-| `alarm daemon stop` | pid file | pid file | `SIGTERM` the daemon, wait for exit, remove the PID file. |
-| `alarm daemon status` | pid file | — | Print running + PID, or not running. Clears a stale PID file it finds. |
+| `alarm daemon stop` | pid file | pid file | `SIGTERM` the daemon, wait for exit, remove the PID file. Exit 1 if nothing is running, or if it has not gone within 10s. |
+| `alarm daemon status` | pid file | — | Print running + PID, or not running. Clears a stale PID file it finds. Exit 0 either way: "not running" is an answer, not a failure. |
+
+### Output
+
+`add` confirms with the resolved absolute time, so the user can see which day it
+landed on:
+
+```
+alarm 1 set for 2026-09-17 07:00 (in 8h 12m)
+```
+
+`list` prints a table whose columns are padded to their widest cell, two spaces
+between them; `--all` appends a second table for terminal states, separated by a
+blank line:
+
+```
+ID  FIRES AT          IN      MESSAGE
+2   2026-09-16 23:30  42m     tea
+1   2026-09-17 07:00  8h 12m  standup
+
+ID  FIRES AT          STATE   RESOLVED AT       MESSAGE
+4   2026-09-16 18:00  fired   2026-09-16 18:00  walk
+3   2026-09-16 14:30  missed  2026-09-16 18:20  -
+```
+
+An empty table is a sentence instead: `no armed alarms`, `no past alarms`. A
+missing message shows as `-`.
+
+The `IN` column is truncated, never rounded up: `8h 12m`, `42m`, `<1m` under a
+minute, `due` for an armed alarm whose time has passed with nothing running to
+ring it.
 
 ### Time resolution (`timeparse`)
 
@@ -200,6 +244,15 @@ Input is `HH:MM` in 24-hour form, local time zone. Given `now`:
 The result is made timezone-aware from the system local zone and stored with its
 offset. `now` is a parameter, never read from the clock inside the function —
 this is the seam NFR-6 depends on.
+
+"Strictly after" is what makes `alarm add 14:30` at exactly 14:30:00 mean
+tomorrow rather than an alarm that is already due the moment it is created.
+
+The input is taken literally: exactly two ASCII digits, a colon, exactly two
+more, in the ranges `00`–`23` and `00`–`59`. `7:00`, `0700`, `07:00:00`, `7am`
+and `24:00` are all refused with a message naming the accepted form (FR-2,
+DR-13); surrounding whitespace is stripped, being a shell artefact rather than a
+different time.
 
 ### Daemon wake loop
 
@@ -253,18 +306,37 @@ to absorb one lost wake, small enough that a missed alarm is unambiguous.
 `ring()` is best-effort and never raises into the loop: play the sound, raise the
 notification, log the outcome of each. A failure in either is logged and the
 alarm still becomes `fired` — the alarm did happen, the machine just couldn't be
-loud about it.
+loud about it. The sweep commits the new state *before* ringing, so no lock is
+held across a subprocess and a ring that dies cannot leave the alarm armed to
+ring again on the next wake.
+
+A store the daemon cannot read is logged once per wake and the loop continues,
+so a file broken by hand does not also cost the user their daemon (DR-16). A
+bug — anything that is not a `StoreError` — is allowed to crash it: the
+traceback lands in `daemon.log`, the PID file is removed on the way out, and
+`alarm daemon status` then tells the truth.
 
 ### Notification (`notify`)
 
 - **Sound:** the first available of `paplay`, `aplay` (Linux), `afplay` (macOS),
   invoked on `~/.alarm-cli/alarm.wav`. If that file is absent it is generated on
-  first use — a short sine-wave tone written with the stdlib `wave` module, so
-  the repo ships no binary asset (NFR-2). Users can replace it with any WAV.
+  first use — a 1.2-second 880 Hz sine at 35% of full scale, ramped in and out
+  over 10 ms so it does not click, written with the stdlib `wave` module, so the
+  repo ships no binary asset (NFR-2). Users can replace it with any WAV; a file
+  that is already there is never regenerated.
 - **Desktop:** `notify-send -u critical "Alarm" "<message>"` on Linux,
-  `osascript -e 'display notification ...'` on macOS.
-- Each call is a `subprocess.run` with a short timeout. Missing binary, non-zero
-  exit, or timeout is logged and swallowed (NFR-5).
+  `osascript -e 'display notification "<message>" with title "Alarm"'` on macOS.
+  An alarm with no message reads `Time's up`. The message is passed as an argv
+  element, never through a shell; for `osascript` it is escaped for AppleScript's
+  own string quoting.
+- Which of those exists is decided by looking the binaries up in `PATH`, in that
+  fixed order — never by asking what platform this is (DR-15).
+- Each call is a `subprocess.run` with `capture_output` and a 10-second timeout.
+  A missing binary, a non-zero exit, a timeout and an `OSError` are each logged
+  and swallowed (NFR-5).
+- The sound and the notification are independent: a machine with no speaker
+  still gets the popup, and a machine with no notifier still gets the tone.
+  `ring()` returns nothing and raises nothing at all.
 
 ### Concurrency
 

@@ -6,9 +6,10 @@ Set an alarm for a clock time, get on with your work, and be interrupted by a
 sound and a desktop notification when the time comes. No database, no GUI, no
 third-party packages.
 
-> **Status: pre-implementation.** The design is settled and documented; the code
-> has not been written yet. See [docs/project_status.md](docs/project_status.md)
-> for what exists today and [PLAN.md](PLAN.md) for the build order.
+> **Status: 0.1.0.** Everything described below works. What it deliberately
+> does not do is listed at the end. See
+> [docs/project_status.md](docs/project_status.md) for what exists today and
+> [PLAN.md](PLAN.md) for the build order.
 
 ## How it works
 
@@ -36,11 +37,15 @@ lost if the daemon is down, but they will not ring late either — see
 
 ## Install
 
-_Not yet packaged._ Once the scaffolding lands, installation will be:
-
 ```sh
-uv tool install .      # or: pip install --user .
+git clone https://github.com/vissuresh/alarm-cli && cd alarm-cli
+uv tool install .              # or: pip install --user .
 ```
+
+That puts `alarm` on your PATH. There is nothing else to install: no service to
+register, no dependencies to resolve.
+
+To work on it instead of installing it, `uv sync` and then `uv run alarm ...`.
 
 ## Usage
 
@@ -58,16 +63,32 @@ alarm add 07:00 -m "standup"
 alarm add 14:30
 ```
 
-See what is armed:
+Times are 24-hour and zero-padded — `07:00`, not `7:00` or `7am`. Anything else
+is refused rather than guessed at.
+
+See what is armed, soonest first:
 
 ```sh
 alarm list
 ```
 
 ```
-ID  FIRES AT           IN       MESSAGE
-1   2026-09-17 07:00   8h 12m   standup
-2   2026-09-16 14:30   1h 02m   -
+ID  FIRES AT          IN      MESSAGE
+2   2026-09-16 23:30  42m     tea
+1   2026-09-17 07:00  8h 12m  standup
+```
+
+`alarm list --all` adds the alarms that already fired, were missed, or were
+cancelled, with the time each one reached that state:
+
+```
+ID  FIRES AT          IN      MESSAGE
+2   2026-09-16 23:30  42m     tea
+1   2026-09-17 07:00  8h 12m  standup
+
+ID  FIRES AT          STATE   RESOLVED AT       MESSAGE
+4   2026-09-16 18:00  fired   2026-09-16 18:00  walk
+3   2026-09-16 14:30  missed  2026-09-16 18:20  -
 ```
 
 Cancel one, or check on the daemon:
@@ -78,8 +99,8 @@ alarm daemon status
 alarm daemon stop
 ```
 
-`alarm list --all` includes alarms that already fired, were missed, or were
-cancelled.
+Ids are never reused, so a cancelled id in your shell history can never later
+hit a different alarm.
 
 ## Missed alarms
 
@@ -101,6 +122,10 @@ Everything lives in one directory, `~/.alarm-cli/`:
 | `daemon.pid` | the running daemon's PID |
 | `daemon.log` | what the daemon did and when |
 | `alarm.wav` | the ring tone (generated on first run; replace it with your own) |
+
+Set `ALARM_CLI_HOME` to keep that directory somewhere else. It applies to the
+client and the daemon alike, so export it before `alarm daemon start` or the two
+halves will read different files.
 
 ## What it deliberately does not do
 
