@@ -6,9 +6,10 @@ Set an alarm for a clock time, get on with your work, and be interrupted by a
 sound and a desktop notification when the time comes. No database, no GUI, no
 third-party packages.
 
-> **Status: pre-implementation.** The design is settled and documented; the code
-> has not been written yet. See [docs/project_status.md](docs/project_status.md)
-> for what exists today and [PLAN.md](PLAN.md) for the build order.
+> **Status: in progress.** The design is settled and the storage layer is
+> built; the commands below are not wired up yet. See
+> [docs/project_status.md](docs/project_status.md) for what exists today and
+> [PLAN.md](PLAN.md) for the build order.
 
 ## How it works
 
@@ -101,6 +102,10 @@ Everything lives in one directory, `~/.alarm-cli/`:
 | `daemon.pid` | the running daemon's PID |
 | `daemon.log` | what the daemon did and when |
 | `alarm.wav` | the ring tone (generated on first run; replace it with your own) |
+
+Set `ALARM_CLI_HOME` to keep that directory somewhere else. It applies to the
+client and the daemon alike, so export it before `alarm daemon start` or the two
+halves will read different files.
 
 ## What it deliberately does not do
 

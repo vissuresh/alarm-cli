@@ -6,7 +6,7 @@ the decisions behind the design, with dates, live in
 [docs/changelog.md](docs/changelog.md).
 
 - **Version:** 0.1.0 (unreleased)
-- **Status:** in progress — M0 (scaffolding) complete; see [docs/project_status.md](docs/project_status.md)
+- **Status:** in progress — M1 (model and store) complete; see [docs/project_status.md](docs/project_status.md)
 
 ---
 
@@ -122,6 +122,10 @@ Dependency direction is strictly one-way: `cli` → {`store`, `daemon`,
 `timeparse`} → {`model`, `paths`}, and `daemon` → {`store`, `notify`}. Nothing
 imports `cli`.
 
+Every `paths` accessor takes an optional root, so a caller can redirect the whole
+tree; `ALARM_CLI_HOME` does the same across a process boundary, for callers
+reached by spawning `alarm` rather than by calling a function (DR-11).
+
 ## 2. JSON structure
 
 `~/.alarm-cli/alarms.json`, UTF-8, written atomically, pretty-printed with a
@@ -172,9 +176,19 @@ armed ──ring (due, within grace)──> fired
 ```
 
 **Missing or empty file** is not an error: it is treated as
-`{"schema_version": 1, "next_id": 1, "alarms": []}`. **Malformed JSON** is an
-error — the store is left untouched and the user is told to inspect or delete the
-file, because silently resetting would destroy alarms.
+`{"schema_version": 1, "next_id": 1, "alarms": []}`.
+
+Anything else that cannot be read as a store is **refused**, with the path in the
+message: the file is left untouched and the user is told to inspect or delete it,
+because silently resetting would destroy alarms. The refusals are malformed JSON,
+a `schema_version` that is not `1`, a missing or non-positive `next_id`, an
+`alarms` value that is not a list, an alarm record with a missing, mistyped or
+unparseable field, a naive `fire_at`/`created_at`/`resolved_at`, a state and
+`resolved_at` that contradict each other, two alarms sharing an id, and a
+`next_id` at or below an existing id — which would hand two alarms the same id.
+
+Reading an absent store does not create one; the file appears on the first
+write.
 
 ## 3. Available commands and flows
 

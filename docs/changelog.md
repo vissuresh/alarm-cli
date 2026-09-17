@@ -22,9 +22,14 @@ Two kinds of entry live here:
 - M0 scaffolding: `pyproject.toml` with no runtime dependencies and the `alarm`
   console script, the `src/alarm_cli/` package with one stub module per the
   documented layout, and a `tests/` smoke test.
+- M1 storage layer: `paths` (the five files under a redirectable root),
+  `model` (`AlarmState`, the frozen `Alarm` record, its invariants and its JSON
+  shape) and `store` (shared/exclusive `flock`, atomic temp-file-plus-rename
+  writes, id allocation, and refusal of a store it cannot understand).
+- `ALARM_CLI_HOME` overrides the state directory (DR-11).
 
-`alarm --version` is the only behaviour so far; every module below `cli` is a
-stub. See [project_status.md](project_status.md).
+`alarm --version` is still the only behaviour: the store is built but nothing
+above it is wired up yet. See [project_status.md](project_status.md).
 
 ---
 
@@ -288,3 +293,74 @@ spec cannot disagree.
 - The version string is duplicated in prose (`project_spec.md`,
   `docs/project_status.md`); those are documentation and are updated by the
   release milestone (M6), not by the build.
+
+## DR-11 — The state root is redirectable, by argument and by environment (2026-09-17)
+
+**Status:** accepted
+
+**Context.** DR-5 puts everything in `~/.alarm-cli/`. Every test in the suite has
+to reach a different directory instead, or it eventually deletes somebody's real
+alarms — a constraint the plan states outright. Three ways to give a caller that:
+
+| Option | Why not |
+| --- | --- |
+| Monkeypatch `Path.home()` in tests | Global, invisible at the call site, and does nothing for the M5 test, which drives a real `alarm` process that has its own `Path.home()`. |
+| A `--root` flag on every command | Puts a debugging affordance in the user-facing surface of every command, and still has to be threaded through the client *and* remembered for the daemon. |
+| **Optional root argument, plus `ALARM_CLI_HOME`** | Chosen. |
+
+**Decision.** Every `paths` accessor and every `store` entry point takes an
+optional root. When it is `None`, the root comes from `ALARM_CLI_HOME` if set and
+`~/.alarm-cli` otherwise, resolved on each call rather than at import.
+
+**Consequences.**
+- Unit tests pass `tmp_path` explicitly; the redirection is visible in the test
+  that relies on it rather than hidden in a fixture.
+- The M5 integration test, which starts a real detached daemon through the
+  console script, has a way to redirect it — an argument cannot cross that
+  boundary. This is the reason the environment variable exists at all.
+- It becomes a user-facing feature, documented in the README: a second set of
+  alarms is a second `ALARM_CLI_HOME`. The failure mode is a user who exports it
+  in one shell and starts the daemon from another, so the two halves read
+  different files. Documented rather than defended against — the alternative is
+  the daemon recording its root somewhere and the client checking it, which is
+  the client↔daemon coupling DR-1 exists to avoid.
+- Reading the variable per call, not at import, keeps `monkeypatch.setenv`
+  working and means no module needs reloading.
+
+## DR-12 — `transaction()` is the read-modify-write primitive (2026-09-17)
+
+**Status:** accepted
+
+**Context.** Both processes read-modify-write one file (DR-8), under `flock` with
+an atomic rename. The question M1 had to settle is what the store *offers*, since
+whatever it offers is what every caller will reach for.
+
+A bare `load()`/`save()` pair is the obvious API and it is quietly wrong: the
+lock is released between the two, so a daemon sweep landing between a client's
+`load` and its `save` is overwritten with no error anywhere. The lock is only
+worth having if it is held across the whole sequence, and an API that makes the
+correct usage the longer one will eventually be used the short way.
+
+**Decision.** `store.transaction(root)` is a context manager that takes
+`LOCK_EX`, reads the store, yields it, and writes back on exit — but only if the
+serialised document actually changed. `load()` (shared lock) and `save()` remain
+for readers and for writing a store built from nothing. Records are immutable:
+`alarm.resolve(state, at)` returns a new `Alarm` and the caller swaps it in by
+id.
+
+**Consequences.**
+- The correct thing is the short thing. `with store.transaction() as s:` is less
+  to type than `load` then `save`, and there is no way to hold it wrongly.
+- The daemon's once-a-minute sweep over an unchanged store performs no write,
+  which is what NFR-4 asks for. The dirty check compares the serialised payload
+  rather than tracking mutations — a few kilobytes of `json.dumps` against a
+  guarantee that nothing can change the store without the check noticing.
+- If the body raises, nothing is written. A bug in the sweep cannot half-apply a
+  batch of state changes.
+- `flock` is per file descriptor, so calling `load` or `save` inside a
+  `transaction` deadlocks against a lock this process already holds. That is a
+  real trap; it is documented at the top of the module, and the one-way import
+  direction means only `cli` and `daemon` can hit it.
+- Immutable records cost a `dataclasses.replace` and an `update()` by id per
+  transition, and buy an invariant check on every record that enters the system
+  — including records read from a file the user hand-edited.

@@ -2,13 +2,15 @@
 
 **Last updated:** 2026-09-17
 **Version:** 0.1.0 (unreleased)
-**Phase:** in progress — M0 complete
+**Phase:** in progress — M1 complete
 
 ## Where things stand
 
-The design is complete and agreed. The package now exists and installs, but no
-behaviour does: `alarm --version` is the whole of it, and every module below
-`cli` is a documented stub.
+The design is complete and agreed. The package installs, and the storage layer
+underneath it is built and tested: alarms can be created, persisted, read back
+and moved to a terminal state, safely under two writers. Nothing above the store
+is wired up yet, so `alarm --version` is still the whole of the user-facing
+behaviour.
 
 | Area | Status |
 | --- | --- |
@@ -17,22 +19,22 @@ behaviour does: `alarm --version` is the whole of it, and every module below
 | Build plan | ✅ settled — [PLAN.md](../PLAN.md) |
 | Packaging (`pyproject.toml`) | ✅ done (M0) |
 | Package skeleton (`src/alarm_cli/`) | ✅ stubs in place (M0) |
-| `paths` / `model` / `store` | ⬜ not started (M1) |
+| `paths` / `model` / `store` | ✅ done (M1) |
 | `timeparse` | ⬜ not started (M2) |
 | Client commands | ⬜ not started (M3) |
 | `notify` | ⬜ not started (M4) |
 | Daemon | ⬜ not started (M5) |
-| Test suite | 🟡 smoke test only (M0) |
+| Test suite | 🟡 71 tests — smoke, paths, model, store; nothing above the store yet |
 
 ## Next step
 
-M1 — `paths`, `model` and `store`, on branch `feature/store`. See
-[PLAN.md](../PLAN.md).
+M2 — `timeparse`: `"HH:MM"` plus a `now` to the next occurrence, on branch
+`feature/timeparse`. See [PLAN.md](../PLAN.md).
 
 ## Open questions
 
-None blocking. Everything needed to start M1 is decided; the decisions and their
-reasoning are recorded in [changelog.md](changelog.md) as DR-1 through DR-10.
+None blocking. Everything needed to start M2 is decided; the decisions and their
+reasoning are recorded in [changelog.md](changelog.md) as DR-1 through DR-12.
 
 ## Update protocol
 
