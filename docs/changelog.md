@@ -27,6 +27,9 @@ Two kinds of entry live here:
   shape) and `store` (shared/exclusive `flock`, atomic temp-file-plus-rename
   writes, id allocation, and refusal of a store it cannot understand).
 - `ALARM_CLI_HOME` overrides the state directory (DR-11).
+- M2 time resolution: `timeparse.next_occurrence("HH:MM", now)`, which resolves
+  a typed clock time to the next instant it names — today if still ahead,
+  tomorrow otherwise — and refuses anything it cannot read literally (DR-13).
 
 `alarm --version` is still the only behaviour: the store is built but nothing
 above it is wired up yet. See [project_status.md](project_status.md).
@@ -364,3 +367,40 @@ id.
 - Immutable records cost a `dataclasses.replace` and an `update()` by id per
   transition, and buy an invariant check on every record that enters the system
   — including records read from a file the user hand-edited.
+
+## DR-13 — `HH:MM` is taken literally, and "now" means tomorrow (2026-09-17)
+
+**Status:** accepted
+
+**Context.** M2 had to settle how forgiving `alarm add <time>` is. The obvious
+implementation, `datetime.strptime(value, "%H:%M")`, is more forgiving than it
+looks: it accepts `7:00` and `7:0`, which is how the question surfaced at all.
+Beyond it sits a spectrum — accept `7pm`, `0700`, `7`, a natural-language
+parser — and at the far end, `python-dateutil`, which DR-4 has already refused.
+
+The second question is what `alarm add 14:30` means when it is exactly
+14:30:00.
+
+**Decision.** The accepted form is exactly two ASCII digits, a colon, two more,
+within `00`–`23` and `00`–`59`. Anything else is refused with a message naming
+that form; only surrounding whitespace is forgiven. The next occurrence is the
+one *strictly after* `now`, so a time that is exactly now resolves to tomorrow.
+
+**Consequences.**
+- The failure is loud and immediate, at the moment the user is still looking at
+  the terminal. Guessing wrong is silent until 07:00 does not happen — an alarm
+  clock has an unusually bad worst case for leniency, and a user who typed
+  `7:00` is two keystrokes from being right.
+- `\d` would have been wrong in the same quiet way: it matches the full-width
+  digits a copy-paste can carry in, so `１２:３０` would have become 12:30. The
+  pattern is `[0-9]`, and there is a test for it.
+- `24:00` is refused rather than folded to midnight. There is already a spelling
+  for that instant, and the fold would silently move the alarm to a different
+  day.
+- "Strictly after" means an alarm can never be created already due. The
+  alternative — resolving to today and having the daemon fire it on the next
+  wake — makes `alarm add 14:30` at 14:30:00 do one of two very different things
+  depending on which side of the second it lands.
+- The parser stays a pure function of `(hhmm, now)`: no clock, no locale, no
+  timezone database lookup. Countdown timers (`alarm timer 10m`) would need a
+  second parser, not a looser one — and the wake loop before that (limitation 8).

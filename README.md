@@ -6,8 +6,8 @@ Set an alarm for a clock time, get on with your work, and be interrupted by a
 sound and a desktop notification when the time comes. No database, no GUI, no
 third-party packages.
 
-> **Status: in progress.** The design is settled and the storage layer is
-> built; the commands below are not wired up yet. See
+> **Status: in progress.** The design is settled, and the storage and
+> time-resolution layers are built; the commands below are not wired up yet. See
 > [docs/project_status.md](docs/project_status.md) for what exists today and
 > [PLAN.md](PLAN.md) for the build order.
 
@@ -58,6 +58,9 @@ still ahead, tomorrow otherwise:
 alarm add 07:00 -m "standup"
 alarm add 14:30
 ```
+
+Times are 24-hour and zero-padded — `07:00`, not `7:00` or `7am`. Anything else
+is refused rather than guessed at.
 
 See what is armed:
 

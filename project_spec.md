@@ -6,7 +6,7 @@ the decisions behind the design, with dates, live in
 [docs/changelog.md](docs/changelog.md).
 
 - **Version:** 0.1.0 (unreleased)
-- **Status:** in progress — M1 (model and store) complete; see [docs/project_status.md](docs/project_status.md)
+- **Status:** in progress — M2 (time resolution) complete; see [docs/project_status.md](docs/project_status.md)
 
 ---
 
@@ -214,6 +214,15 @@ Input is `HH:MM` in 24-hour form, local time zone. Given `now`:
 The result is made timezone-aware from the system local zone and stored with its
 offset. `now` is a parameter, never read from the clock inside the function —
 this is the seam NFR-6 depends on.
+
+"Strictly after" is what makes `alarm add 14:30` at exactly 14:30:00 mean
+tomorrow rather than an alarm that is already due the moment it is created.
+
+The input is taken literally: exactly two ASCII digits, a colon, exactly two
+more, in the ranges `00`–`23` and `00`–`59`. `7:00`, `0700`, `07:00:00`, `7am`
+and `24:00` are all refused with a message naming the accepted form (FR-2,
+DR-13); surrounding whitespace is stripped, being a shell artefact rather than a
+different time.
 
 ### Daemon wake loop
 
